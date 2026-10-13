@@ -8,6 +8,9 @@ let selectedDevice = null;
 let devices = [];
 
 const formatTime = (value) => new Date(value).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const stateLabel = (device, detected) => device.sensor_type === 'light'
+  ? (detected ? 'Luz detectada' : 'Sin luz')
+  : (detected ? 'Sonido detectado' : 'Sin sonido');
 
 function renderChart(points) {
   const valid = points.filter((point) => point.time);
@@ -44,14 +47,15 @@ function renderChart(points) {
 
   const current = valid.at(-1);
   banner.classList.toggle('detected', current.detected);
-  document.querySelector('#reading-state').textContent = current.detected ? 'Sonido detectado' : 'Sin sonido';
+  const device = devices.find((item) => item.id === selectedDevice);
+  document.querySelector('#reading-state').textContent = stateLabel(device, current.detected);
   document.querySelector('#reading-value').textContent = current.detected ? '1' : '0';
 }
 
 function renderDevices() {
   document.querySelector('#device-total').textContent = devices.length;
   document.querySelector('#device-online').textContent = devices.filter((device) => device.online).length;
-  document.querySelector('#sound-total').textContent = devices.filter((device) => device.sound_detected).length;
+  document.querySelector('#sound-total').textContent = devices.filter((device) => device.sensor_type === 'sound' && device.detected).length;
   document.querySelector('#nav-count').textContent = devices.length;
   document.querySelector('#device-status').textContent = devices.length ? `${devices.length} dispositivo${devices.length === 1 ? '' : 's'} detectado${devices.length === 1 ? '' : 's'}` : 'Sin dispositivos todavía';
   const brokerOnline = devices.some((device) => device.online);
@@ -97,8 +101,10 @@ function renderDevices() {
     pin.className = 'device-pin';
     pin.textContent = `LM393 · GPIO ${device.pin}`;
     const reading = document.createElement('span');
-    reading.className = `device-reading ${device.sound_detected ? 'detected' : 'quiet'}`;
-    reading.textContent = device.sound_detected ? 'Sonido · 1' : 'Silencio · 0';
+    reading.className = `device-reading ${device.detected ? 'detected' : 'quiet'}`;
+    reading.textContent = device.sensor_type === 'light'
+      ? (device.detected ? 'Luz · 1' : 'Sin luz · 0')
+      : (device.detected ? 'Sonido · 1' : 'Silencio · 0');
     bottom.append(pin, reading);
     button.append(top, bottom);
     button.addEventListener('click', () => {
@@ -110,11 +116,12 @@ function renderDevices() {
   }));
 
   const selected = devices.find((device) => device.id === selectedDevice);
+  document.querySelector('#chart-title').textContent = selected.sensor_type === 'light' ? 'Estado de luz' : 'Actividad de sonido';
   document.querySelector('#chart-device').textContent = `${selected.name} · ${selected.id}`;
   document.querySelector('#reading-pin').textContent = `GPIO ${selected.pin}`;
-  banner.classList.toggle('detected', selected.sound_detected);
-  document.querySelector('#reading-state').textContent = selected.sound_detected ? 'Sonido detectado' : 'Sin sonido';
-  document.querySelector('#reading-value').textContent = selected.sound_detected ? '1' : '0';
+  banner.classList.toggle('detected', selected.detected);
+  document.querySelector('#reading-state').textContent = stateLabel(selected, selected.detected);
+  document.querySelector('#reading-value').textContent = selected.detected ? '1' : '0';
 }
 
 async function refreshReadings() {

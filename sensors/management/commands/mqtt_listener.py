@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
-from sensors.models import SensorDevice, SoundReading
+from sensors.models import LightReading, SensorDevice, SoundReading
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,15 @@ class Command(BaseCommand):
                 pin = payload.get("sound_pin", 27)
                 if not isinstance(pin, int) or not 0 <= pin <= 39:
                     raise ValueError("sound_pin is invalid")
+                light_detected = payload.get("light_detected")
+                if light_detected is not None and not isinstance(light_detected, bool):
+                    raise ValueError("light_detected must be boolean")
+                light_pin = payload.get("light_pin", 26)
+                if not isinstance(light_pin, int) or not 0 <= light_pin <= 39:
+                    raise ValueError("light_pin is invalid")
+                changed_sensor = payload.get("changed_sensor")
+                if changed_sensor not in (None, "sound", "light"):
+                    raise ValueError("changed_sensor is invalid")
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 logger.warning("Ignoring invalid MQTT message on %s: %s", message.topic, exc)
                 return
@@ -59,11 +68,16 @@ class Command(BaseCommand):
                         defaults={
                             "name": sensor_name.strip(),
                             "gpio_pin": pin,
+                            "light_gpio_pin": light_pin,
                             "last_seen": timezone.now(),
                             "sound_detected": detected,
+                            "light_detected": light_detected if light_detected is not None else False,
                         },
                     )
-                    SoundReading.objects.create(device=device, sound_detected=detected)
+                    if parts[2] == "telemetry" or changed_sensor == "sound":
+                        SoundReading.objects.create(device=device, sound_detected=detected)
+                    if light_detected is not None and (parts[2] == "telemetry" or changed_sensor == "light"):
+                        LightReading.objects.create(device=device, detected=light_detected)
             except DatabaseError:
                 logger.exception("Failed to store telemetry from %s", parts[1])
             finally:
