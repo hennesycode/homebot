@@ -41,6 +41,16 @@ def devices(request):
                 "last_seen": last_seen,
                 "online": online,
             },
+            {
+                "id": f"{device.device_id}:smoke",
+                "device_id": device.device_id,
+                "name": "Sensor de humo",
+                "sensor_type": "smoke",
+                "pin": device.smoke_gpio_pin,
+                "detected": device.smoke_detected,
+                "last_seen": last_seen,
+                "online": online,
+            },
         ])
     return JsonResponse({"devices": result})
 
@@ -49,13 +59,17 @@ def devices(request):
 def readings(request):
     channel_id = request.GET.get("device", "")
     device_id, separator, sensor_type = channel_id.rpartition(":")
-    if not separator or sensor_type not in ("sound", "light"):
+    if not separator or sensor_type not in ("sound", "light", "smoke"):
         return JsonResponse({"points": [], "device": None})
     device = SensorDevice.objects.filter(device_id=device_id).first()
     if device is None:
         return JsonResponse({"points": [], "device": None})
 
-    history = device.readings if sensor_type == "sound" else device.light_readings
+    history = {
+        "sound": device.readings,
+        "light": device.light_readings,
+        "smoke": device.smoke_readings,
+    }[sensor_type]
     values = history.order_by("-received_at").values_list(
         "received_at", "sound_detected" if sensor_type == "sound" else "detected"
     )[:180]

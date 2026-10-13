@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
-from sensors.models import LightReading, SensorDevice, SoundReading
+from sensors.models import LightReading, SensorDevice, SmokeReading, SoundReading
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,14 @@ class Command(BaseCommand):
                 light_pin = payload.get("light_pin", 26)
                 if not isinstance(light_pin, int) or not 0 <= light_pin <= 39:
                     raise ValueError("light_pin is invalid")
+                smoke_detected = payload.get("smoke_detected")
+                if smoke_detected is not None and not isinstance(smoke_detected, bool):
+                    raise ValueError("smoke_detected must be boolean")
+                smoke_pin = payload.get("smoke_pin", 13)
+                if not isinstance(smoke_pin, int) or not 0 <= smoke_pin <= 39:
+                    raise ValueError("smoke_pin is invalid")
                 changed_sensor = payload.get("changed_sensor")
-                if changed_sensor not in (None, "sound", "light"):
+                if changed_sensor not in (None, "sound", "light", "smoke"):
                     raise ValueError("changed_sensor is invalid")
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 logger.warning("Ignoring invalid MQTT message on %s: %s", message.topic, exc)
@@ -69,15 +75,19 @@ class Command(BaseCommand):
                             "name": sensor_name.strip(),
                             "gpio_pin": pin,
                             "light_gpio_pin": light_pin,
+                            "smoke_gpio_pin": smoke_pin,
                             "last_seen": timezone.now(),
                             "sound_detected": detected,
                             "light_detected": light_detected if light_detected is not None else False,
+                            "smoke_detected": smoke_detected if smoke_detected is not None else False,
                         },
                     )
                     if parts[2] == "telemetry" or changed_sensor == "sound":
                         SoundReading.objects.create(device=device, sound_detected=detected)
                     if light_detected is not None and (parts[2] == "telemetry" or changed_sensor == "light"):
                         LightReading.objects.create(device=device, detected=light_detected)
+                    if smoke_detected is not None and (parts[2] == "telemetry" or changed_sensor == "smoke"):
+                        SmokeReading.objects.create(device=device, detected=smoke_detected)
             except DatabaseError:
                 logger.exception("Failed to store telemetry from %s", parts[1])
             finally:

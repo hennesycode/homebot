@@ -10,7 +10,9 @@ let devices = [];
 const formatTime = (value) => new Date(value).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const stateLabel = (device, detected) => device.sensor_type === 'light'
   ? (detected ? 'Luz detectada' : 'Sin luz')
-  : (detected ? 'Sonido detectado' : 'Sin sonido');
+  : device.sensor_type === 'smoke'
+    ? (detected ? 'Humo detectado' : 'Sin humo')
+    : (detected ? 'Sonido detectado' : 'Sin sonido');
 
 function renderChart(points) {
   const valid = points.filter((point) => point.time);
@@ -99,12 +101,14 @@ function renderDevices() {
     bottom.className = 'device-bottom';
     const pin = document.createElement('span');
     pin.className = 'device-pin';
-    pin.textContent = `LM393 · GPIO ${device.pin}`;
+    pin.textContent = `${device.sensor_type === 'smoke' ? 'DO' : 'LM393'} · GPIO ${device.pin}`;
     const reading = document.createElement('span');
     reading.className = `device-reading ${device.detected ? 'detected' : 'quiet'}`;
     reading.textContent = device.sensor_type === 'light'
       ? (device.detected ? 'Luz · 1' : 'Sin luz · 0')
-      : (device.detected ? 'Sonido · 1' : 'Silencio · 0');
+      : device.sensor_type === 'smoke'
+        ? (device.detected ? 'Humo · 1' : 'Sin humo · 0')
+        : (device.detected ? 'Sonido · 1' : 'Silencio · 0');
     bottom.append(pin, reading);
     button.append(top, bottom);
     button.addEventListener('click', () => {
@@ -116,9 +120,14 @@ function renderDevices() {
   }));
 
   const selected = devices.find((device) => device.id === selectedDevice);
-  document.querySelector('#chart-title').textContent = selected.sensor_type === 'light' ? 'Estado de luz' : 'Actividad de sonido';
+  document.querySelector('#chart-title').textContent = ({
+    sound: 'Actividad de sonido',
+    light: 'Estado de luz',
+    smoke: 'Estado de humo',
+    smoke: 'Estado de humo',
+  })[selected.sensor_type] || 'Estado del sensor';
   document.querySelector('#chart-device').textContent = `${selected.name} · ${selected.id}`;
-  document.querySelector('#reading-pin').textContent = `GPIO ${selected.pin}`;
+  document.querySelector('#reading-pin').textContent = `${selected.sensor_type === 'smoke' ? 'Digital' : 'GPIO'} ${selected.pin}`;
   banner.classList.toggle('detected', selected.detected);
   document.querySelector('#reading-state').textContent = stateLabel(selected, selected.detected);
   document.querySelector('#reading-value').textContent = selected.detected ? '1' : '0';

@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.utils import timezone
 
-from .models import LightReading, SensorDevice, SoundReading
+from .models import LightReading, SensorDevice, SmokeReading, SoundReading
 
 
 class DashboardApiTests(TestCase):
@@ -25,12 +25,15 @@ class DashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         sound = next(item for item in response.json()["devices"] if item["sensor_type"] == "sound")
         light = next(item for item in response.json()["devices"] if item["sensor_type"] == "light")
+        smoke = next(item for item in response.json()["devices"] if item["sensor_type"] == "smoke")
         self.assertEqual(sound["name"], "Sensor de sonido LM393")
         self.assertEqual(sound["pin"], 27)
         self.assertTrue(sound["detected"])
         self.assertTrue(sound["online"])
         self.assertEqual(light["name"], "Sensor de luz LM393")
         self.assertEqual(light["pin"], 26)
+        self.assertEqual(smoke["name"], "Sensor de humo")
+        self.assertEqual(smoke["pin"], 13)
 
     def test_light_channel_reports_current_state_and_numeric_history(self):
         device = SensorDevice.objects.create(
@@ -48,6 +51,17 @@ class DashboardApiTests(TestCase):
 
         self.assertTrue(light["detected"])
         self.assertEqual([point["value"] for point in history["points"]], [0, 1])
+
+    def test_smoke_channel_reports_history(self):
+        device = SensorDevice.objects.create(device_id="unit-smoke", name="Sensor de sonido LM393")
+        SmokeReading.objects.create(device=device, detected=True)
+
+        devices = self.client.get("/api/devices/").json()["devices"]
+        smoke = next(item for item in devices if item["sensor_type"] == "smoke")
+        history = self.client.get(f"/api/readings/?device={smoke['id']}").json()
+
+        self.assertEqual(smoke["pin"], 13)
+        self.assertEqual([point["value"] for point in history["points"]], [1])
 
     def test_readings_returns_recent_sensor_history_in_time_order(self):
         device = SensorDevice.objects.create(device_id="unit-1", name="unit-1")
