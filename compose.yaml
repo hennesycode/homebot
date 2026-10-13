@@ -1,4 +1,15 @@
 services:
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/passwordfile:/mosquitto/config/passwordfile:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-log:/mosquitto/log
+    ports:
+      - "${MQTT_BIND_ADDRESS:-0.0.0.0}:1883:1883"
+
   db:
     image: mysql:8.4
     restart: unless-stopped
@@ -26,9 +37,12 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      MQTT_HOST: mqtt
     depends_on:
       db:
         condition: service_healthy
+      mqtt:
+        condition: service_started
     expose:
       - "8000"
     ports:
@@ -50,12 +64,17 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      MQTT_HOST: mqtt
     depends_on:
       db:
         condition: service_healthy
+      mqtt:
+        condition: service_started
       web:
         condition: service_healthy
 
 volumes:
   mysql-data:
   static-data:
+  mqtt-data:
+  mqtt-log:

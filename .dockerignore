@@ -1,9 +1,11 @@
 .git
 .env
+.gitignore
 .venv
 __pycache__
 **/__pycache__
 *.py[cod]
 db.sqlite3
 staticfiles
+mosquitto/passwordfile
 .DS_Store
