@@ -1,7 +1,12 @@
+import hashlib
+import hmac
 import json
 import logging
 import os
 import time
+import urllib.error
+import urllib.request
+import uuid
 
 import paho.mqtt.client as mqtt
 from django.core.management.base import BaseCommand
@@ -11,6 +16,36 @@ from django.utils import timezone
 from sensors.models import LightReading, SensorDevice, SmokeReading, SoundReading
 
 logger = logging.getLogger(__name__)
+
+
+def send_hermes_alert(payload):
+    url = os.getenv("HOMEBOT_HERMES_WEBHOOK_URL", "").strip()
+    secret = os.getenv("HOMEBOT_HERMES_WEBHOOK_SECRET", "")
+    if not url or not secret:
+        return
+
+    timestamp = str(int(time.time()))
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    signed_content = timestamp.encode("ascii") + b"." + body
+    signature = hmac.new(secret.encode("utf-8"), signed_content, hashlib.sha256).hexdigest()
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": timestamp,
+            "X-Webhook-Signature-V2": signature,
+            "X-Request-ID": str(uuid.uuid4()),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            logger.info("Hermes accepted sensor alert (HTTP %s)", response.status)
+    except urllib.error.HTTPError as exc:
+        logger.error("Hermes rejected sensor alert (HTTP %s)", exc.code)
+    except (urllib.error.URLError, TimeoutError) as exc:
+        logger.warning("Hermes webhook unavailable: %s", type(exc).__name__)
 
 
 class Command(BaseCommand):
@@ -92,6 +127,28 @@ class Command(BaseCommand):
                 logger.exception("Failed to store telemetry from %s", parts[1])
             finally:
                 close_old_connections()
+
+            if parts[2] == "events" and changed_sensor and payload.get(f"{changed_sensor}_detected") is True:
+                sensor_names = {
+                    "sound": payload.get("sensor_name", "Sensor de sonido"),
+                    "light": payload.get("light_name", "Sensor de luz"),
+                    "smoke": payload.get("smoke_name", "Sensor de humo"),
+                }
+                sensor_pins = {"sound": pin, "light": light_pin, "smoke": smoke_pin}
+                send_hermes_alert({
+                    "event_type": "sensor_alert",
+                    "device_id": parts[1],
+                    "sensor": {
+                        "id": changed_sensor,
+                        "name": sensor_names[changed_sensor],
+                        "type": changed_sensor,
+                        "pin": sensor_pins[changed_sensor],
+                        "value": 1,
+                        "unit": "digital",
+                    },
+                    "state": "detected",
+                    "occurred_at": timezone.now().isoformat(),
+                })
 
         client.on_connect = on_connect
         client.on_message = on_message

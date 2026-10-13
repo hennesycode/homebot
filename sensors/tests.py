@@ -1,6 +1,12 @@
+import hashlib
+import hmac
+import os
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.utils import timezone
 
+from .management.commands.mqtt_listener import send_hermes_alert
 from .models import LightReading, SensorDevice, SmokeReading, SoundReading
 
 
@@ -79,3 +85,29 @@ class DashboardApiTests(TestCase):
     def test_unknown_device_has_empty_history(self):
         response = self.client.get("/api/readings/?device=not-seen:sound")
         self.assertEqual(response.json(), {"points": [], "device": None})
+
+
+class HermesWebhookTests(TestCase):
+    @patch.dict(os.environ, {
+        "HOMEBOT_HERMES_WEBHOOK_URL": "https://hermes.example/webhooks/homebot-sensors",
+        "HOMEBOT_HERMES_WEBHOOK_SECRET": "test-secret",
+    })
+    @patch("sensors.management.commands.mqtt_listener.urllib.request.urlopen")
+    def test_alert_is_posted_with_v2_hmac_signature(self, urlopen):
+        response = urlopen.return_value.__enter__.return_value
+        response.status = 200
+        payload = {"event_type": "sensor_alert", "sensor": {"name": "Sensor de humo"}}
+
+        send_hermes_alert(payload)
+
+        request = urlopen.call_args.args[0]
+        timestamp = request.get_header("X-webhook-timestamp")
+        signature = request.get_header("X-webhook-signature-v2")
+        expected = hmac.new(
+            b"test-secret",
+            timestamp.encode("ascii") + b"." + request.data,
+            hashlib.sha256,
+        ).hexdigest()
+        self.assertEqual(request.full_url, "https://hermes.example/webhooks/homebot-sensors")
+        self.assertEqual(signature, expected)
+        self.assertIn(b"Sensor de humo", request.data)

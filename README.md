@@ -32,6 +32,10 @@ docker compose down
 
 El worker escucha `sensors/+/telemetry`. En el ESP32 configura el dominio/IP de la VPS como `MQTT_HOST`, puerto `1883` y las mismas credenciales MQTT. Asigna un `MQTT_DEVICE_ID` único por placa. Para LM393, el firmware envía `sound_detected` y `sound_pin` (GPIO27).
 
+## Alertas a Hermes
+
+Para avisar a Hermes solo cuando un sensor pasa a estado detectado, configura en Dokploy `HOMEBOT_HERMES_WEBHOOK_URL` con la URL HTTPS de la ruta `sensor_alert` creada por Hermes y `HOMEBOT_HERMES_WEBHOOK_SECRET` con el secreto HMAC de esa ruta. El worker firma cada POST con `X-Webhook-Timestamp` y `X-Webhook-Signature-V2`; los secretos no deben guardarse en Git. Despliega de nuevo Homebot después de añadir estas variables.
+
 ## Desarrollo local sin Docker
 
 Si `DB_HOST` no está definido, Django usa SQLite para facilitar desarrollo y pruebas:
