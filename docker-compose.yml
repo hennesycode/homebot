@@ -86,6 +86,9 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?Set DB_NAME in Dokploy environment}
+      DB_USER: ${DB_USER:?Set DB_USER in Dokploy environment}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Dokploy environment}
       MQTT_HOST: mqtt
       MQTT_PORT: ${MQTT_PORT:-1883}
       MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in Dokploy environment}

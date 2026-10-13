@@ -5,7 +5,7 @@ import time
 
 import paho.mqtt.client as mqtt
 from django.core.management.base import BaseCommand
-from django.db import close_old_connections, transaction
+from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
 from sensors.models import SensorDevice, SoundReading
@@ -48,18 +48,22 @@ class Command(BaseCommand):
                 return
 
             close_old_connections()
-            with transaction.atomic():
-                device, _ = SensorDevice.objects.update_or_create(
-                    device_id=parts[1],
-                    defaults={
-                        "name": parts[1],
-                        "gpio_pin": pin,
-                        "last_seen": timezone.now(),
-                        "sound_detected": detected,
-                    },
-                )
-                SoundReading.objects.create(device=device, sound_detected=detected)
-            close_old_connections()
+            try:
+                with transaction.atomic():
+                    device, _ = SensorDevice.objects.update_or_create(
+                        device_id=parts[1],
+                        defaults={
+                            "name": parts[1],
+                            "gpio_pin": pin,
+                            "last_seen": timezone.now(),
+                            "sound_detected": detected,
+                        },
+                    )
+                    SoundReading.objects.create(device=device, sound_detected=detected)
+            except DatabaseError:
+                logger.exception("Failed to store telemetry from %s", parts[1])
+            finally:
+                close_old_connections()
 
         client.on_connect = on_connect
         client.on_message = on_message
@@ -69,6 +73,6 @@ class Command(BaseCommand):
             try:
                 client.connect(host, port, keepalive=60)
                 client.loop_forever()
-            except (OSError, mqtt.MQTTException) as exc:
+            except OSError as exc:
                 logger.warning("MQTT unavailable (%s); retrying in 5 seconds", exc)
                 time.sleep(5)
