@@ -10,7 +10,7 @@ services:
         else
           mosquitto_passwd -b -c /mosquitto/data/passwordfile "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
         fi
-        chmod 644 /mosquitto/data/passwordfile
+        chmod 600 /mosquitto/data/passwordfile
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in Dokploy environment}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in Dokploy environment}
@@ -73,7 +73,7 @@ services:
     volumes:
       - static-data:/app/staticfiles
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/').read()"]
+      test: ["CMD", "python", "-c", "import socket; s=socket.create_connection(('127.0.0.1',8000),2); s.close()"]
       interval: 10s
       timeout: 3s
       retries: 5
