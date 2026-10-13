@@ -5,7 +5,11 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
-        mosquitto_passwd -b -c /mosquitto/data/passwordfile "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        if [ -f /mosquitto/data/passwordfile ]; then
+          mosquitto_passwd -b /mosquitto/data/passwordfile "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        else
+          mosquitto_passwd -b -c /mosquitto/data/passwordfile "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        fi
         chmod 644 /mosquitto/data/passwordfile
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in Dokploy environment}
