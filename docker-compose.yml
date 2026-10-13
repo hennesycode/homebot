@@ -1,10 +1,26 @@
 services:
+  mqtt-init:
+    image: eclipse-mosquitto:2
+    restart: "no"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mosquitto_passwd -b -c /mosquitto/data/passwordfile "$$MQTT_USERNAME" "$$MQTT_PASSWORD"
+        chmod 644 /mosquitto/data/passwordfile
+    environment:
+      MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in Dokploy environment}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in Dokploy environment}
+    volumes:
+      - mqtt-data:/mosquitto/data
+
   mqtt:
     image: eclipse-mosquitto:2
     restart: unless-stopped
+    depends_on:
+      mqtt-init:
+        condition: service_completed_successfully
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/passwordfile:/mosquitto/config/passwordfile:ro
       - mqtt-data:/mosquitto/data
       - mqtt-log:/mosquitto/log
     ports:
@@ -13,7 +29,6 @@ services:
   db:
     image: mysql:8.4
     restart: unless-stopped
-    env_file: .env
     environment:
       MYSQL_DATABASE: ${DB_NAME:?Set DB_NAME in .env}
       MYSQL_USER: ${DB_USER:?Set DB_USER in .env}
@@ -33,11 +48,15 @@ services:
   web:
     build: .
     restart: unless-stopped
-    env_file: .env
     environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in Dokploy environment}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in Dokploy environment}
       DB_HOST: db
       DB_PORT: "3306"
-      MQTT_HOST: mqtt
+      DB_NAME: ${DB_NAME:?Set DB_NAME in Dokploy environment}
+      DB_USER: ${DB_USER:?Set DB_USER in Dokploy environment}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Dokploy environment}
     depends_on:
       db:
         condition: service_healthy
@@ -60,11 +79,13 @@ services:
     build: .
     restart: unless-stopped
     command: ["python", "manage.py", "mqtt_listener"]
-    env_file: .env
     environment:
       DB_HOST: db
       DB_PORT: "3306"
       MQTT_HOST: mqtt
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_USERNAME: ${MQTT_USERNAME:?Set MQTT_USERNAME in Dokploy environment}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in Dokploy environment}
     depends_on:
       db:
         condition: service_healthy

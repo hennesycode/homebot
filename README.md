@@ -10,20 +10,7 @@ Requiere Docker Compose v2. Desde esta carpeta:
 cp .env.example .env
 ```
 
-Edita `.env` y reemplaza todos los valores `replace-with-...`. El servicio MQTT se llama `mqtt` dentro de Compose. Crea su archivo de credenciales en esta carpeta antes de iniciar los contenedores:
-
-```sh
-mkdir -p mosquitto
-docker run --rm -it \
-  --user "$(id -u):$(id -g)" \
-  -v "$PWD/mosquitto:/work" \
-  --entrypoint mosquitto_passwd \
-  eclipse-mosquitto:2 \
-  -c /work/passwordfile esp32
-chmod 644 mosquitto/passwordfile
-```
-
-Escribe la misma contraseña que pusiste en `MQTT_PASSWORD` de `.env`. El archivo contiene solo el hash y está excluido de Git.
+Edita `.env` y reemplaza todos los valores `replace-with-...`. El servicio MQTT se llama `mqtt` dentro de Compose. Al iniciar, un contenedor de preparación genera el archivo de contraseñas cifradas usando `MQTT_USERNAME` y `MQTT_PASSWORD`; el secreto en texto plano no se guarda en Git.
 
 ```sh
 docker compose up -d --build
@@ -32,7 +19,7 @@ docker compose ps
 
 Abre <http://127.0.0.1:8000>. Django aplica las migraciones y recopila archivos estáticos al arrancar; el worker MQTT espera a que MySQL y Django estén listos. Los datos persisten en el volumen Docker `mysql-data`.
 
-MySQL no publica ningún puerto en el host; Django y el worker acceden por la red privada de Compose (`db:3306`). El dashboard se publica únicamente en localhost (`127.0.0.1:8000`). MQTT publica el puerto `1883` para que el ESP32 pueda conectarse: configura `MQTT_BIND_ADDRESS` con la interfaz necesaria y limita el acceso con el firewall. MQTT en `1883` no cifra el tráfico; para producción pública usa TLS (puerto `8883`) y actualiza el firmware del ESP32 para validar el certificado.
+MySQL no publica ningún puerto en el host; Django y el worker acceden por la red privada de Compose (`db:3306`). El dashboard se publica únicamente en localhost (`127.0.0.1:8000`). MQTT publica el puerto `1883` para que el ESP32 pueda conectarse; limita su acceso con el firewall. MQTT en `1883` no cifra el tráfico; para producción pública usa TLS (puerto `8883`) y actualiza el firmware del ESP32 para validar el certificado.
 
 ```sh
 docker compose logs -f web mqtt-worker
