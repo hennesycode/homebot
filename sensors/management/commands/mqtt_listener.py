@@ -29,11 +29,12 @@ class Command(BaseCommand):
                 logger.error("MQTT connection failed: %s", reason_code)
                 return
             client.subscribe("sensors/+/telemetry", qos=1)
-            self.stdout.write("Connected to MQTT; listening for sensor telemetry")
+            client.subscribe("sensors/+/events", qos=1)
+            self.stdout.write("Connected to MQTT; listening for sensor telemetry and events")
 
         def on_message(_client, _userdata, message):
             parts = message.topic.split("/")
-            if len(parts) != 3 or parts[0] != "sensors" or parts[2] != "telemetry":
+            if len(parts) != 3 or parts[0] != "sensors" or parts[2] not in ("telemetry", "events"):
                 return
             try:
                 payload = json.loads(message.payload)
