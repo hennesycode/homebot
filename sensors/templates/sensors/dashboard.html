@@ -68,9 +68,9 @@
           <div><div class="chart-title-row"><span class="sensor-glyph" aria-hidden="true">⌁</span><div><h2 id="chart-title">Actividad de sonido</h2><p id="chart-device">Selecciona un dispositivo para ver sus lecturas</p></div></div></div>
           <div class="chart-legend"><span class="legend-line"></span><span>Sonido detectado</span><span class="chart-window">Últimas lecturas</span></div>
         </div>
-        <div class="reading-banner" id="reading-banner"><span class="reading-state-dot"></span><span id="reading-state">Sin lectura</span><span class="reading-pin" id="reading-pin">GPIO —</span></div>
+        <div class="reading-banner" id="reading-banner"><span class="reading-state-dot"></span><span id="reading-state">Sin lectura</span><span class="reading-value">DO <strong id="reading-value">—</strong></span><span class="reading-pin" id="reading-pin">GPIO —</span></div>
         <div class="chart-wrap" id="chart-wrap">
-          <div class="chart-y-labels" aria-hidden="true"><span>DETECTADO</span><span>SIN SONIDO</span></div>
+          <div class="chart-y-labels" aria-hidden="true"><span>1 · DETECTADO</span><span>0 · SILENCIO</span></div>
           <svg class="chart" id="sound-chart" viewBox="0 0 900 220" preserveAspectRatio="none" role="img" aria-label="Gráfica temporal del estado del sensor">
             <defs><linearGradient id="area-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#50d9bd" stop-opacity=".19"/><stop offset="100%" stop-color="#50d9bd" stop-opacity="0"/></linearGradient></defs>
             <g class="chart-grid"><line x1="0" y1="36" x2="900" y2="36"/><line x1="0" y1="110" x2="900" y2="110"/><line x1="0" y1="184" x2="900" y2="184"/></g>
@@ -80,7 +80,7 @@
         </div>
         <div class="chart-axis"><span id="range-start">—</span><span>Tiempo de recepción</span><span id="range-end">—</span></div>
       </section>
-      <footer class="page-footer"><span>Los estados reflejan el umbral digital del módulo LM393.</span><span>Actualización automática · 1.5 s</span></footer>
+      <footer class="page-footer"><span>Salida DO: 1 = sonido detectado · 0 = silencio. No mide decibelios.</span><span>Actualización automática · 1.5 s</span></footer>
     </main>
   </div>
 </body>

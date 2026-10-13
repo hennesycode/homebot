@@ -40,6 +40,9 @@ class Command(BaseCommand):
                 detected = payload["sound_detected"]
                 if not isinstance(detected, bool):
                     raise ValueError("sound_detected must be boolean")
+                sensor_name = payload.get("sensor_name", parts[1])
+                if not isinstance(sensor_name, str) or not sensor_name.strip() or len(sensor_name) > 120:
+                    raise ValueError("sensor_name is invalid")
                 pin = payload.get("sound_pin", 27)
                 if not isinstance(pin, int) or not 0 <= pin <= 39:
                     raise ValueError("sound_pin is invalid")
@@ -53,7 +56,7 @@ class Command(BaseCommand):
                     device, _ = SensorDevice.objects.update_or_create(
                         device_id=parts[1],
                         defaults={
-                            "name": parts[1],
+                            "name": sensor_name.strip(),
                             "gpio_pin": pin,
                             "last_seen": timezone.now(),
                             "sound_detected": detected,

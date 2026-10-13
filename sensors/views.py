@@ -40,5 +40,8 @@ def readings(request):
     points.reverse()
     return JsonResponse({
         "device": device.device_id,
-        "points": [{"time": at.isoformat(), "detected": detected} for at, detected in points],
+        "points": [
+            {"time": at.isoformat(), "detected": detected, "value": int(detected)}
+            for at, detected in points
+        ],
     })

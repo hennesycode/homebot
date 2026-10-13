@@ -45,6 +45,7 @@ function renderChart(points) {
   const current = valid.at(-1);
   banner.classList.toggle('detected', current.detected);
   document.querySelector('#reading-state').textContent = current.detected ? 'Sonido detectado' : 'Sin sonido';
+  document.querySelector('#reading-value').textContent = current.detected ? '1' : '0';
 }
 
 function renderDevices() {
@@ -74,16 +75,22 @@ function renderDevices() {
     button.setAttribute('aria-pressed', String(device.id === selectedDevice));
     const top = document.createElement('span');
     top.className = 'device-top';
+    const title = document.createElement('span');
+    title.className = 'device-title';
     const name = document.createElement('span');
     name.className = 'device-name';
     name.textContent = device.name;
+    const id = document.createElement('span');
+    id.className = 'device-id';
+    id.textContent = device.id;
+    title.append(name, id);
     const state = document.createElement('span');
     state.className = `device-state${device.online ? ' online' : ''}`;
     const stateDot = document.createElement('i');
     const stateText = document.createElement('span');
     stateText.textContent = device.online ? 'Conectado' : 'Desconectado';
     state.append(stateDot, stateText);
-    top.append(name, state);
+    top.append(title, state);
     const bottom = document.createElement('span');
     bottom.className = 'device-bottom';
     const pin = document.createElement('span');
@@ -91,7 +98,7 @@ function renderDevices() {
     pin.textContent = `LM393 · GPIO ${device.pin}`;
     const reading = document.createElement('span');
     reading.className = `device-reading ${device.sound_detected ? 'detected' : 'quiet'}`;
-    reading.textContent = device.sound_detected ? 'Sonido detectado' : 'Sin sonido';
+    reading.textContent = device.sound_detected ? 'Sonido · 1' : 'Silencio · 0';
     bottom.append(pin, reading);
     button.append(top, bottom);
     button.addEventListener('click', () => {
@@ -103,10 +110,11 @@ function renderDevices() {
   }));
 
   const selected = devices.find((device) => device.id === selectedDevice);
-  document.querySelector('#chart-device').textContent = selected.name;
+  document.querySelector('#chart-device').textContent = `${selected.name} · ${selected.id}`;
   document.querySelector('#reading-pin').textContent = `GPIO ${selected.pin}`;
   banner.classList.toggle('detected', selected.sound_detected);
   document.querySelector('#reading-state').textContent = selected.sound_detected ? 'Sonido detectado' : 'Sin sonido';
+  document.querySelector('#reading-value').textContent = selected.sound_detected ? '1' : '0';
 }
 
 async function refreshReadings() {
