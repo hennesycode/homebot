@@ -1,0 +1,74 @@
+import json
+import logging
+import os
+import time
+
+import paho.mqtt.client as mqtt
+from django.core.management.base import BaseCommand
+from django.db import close_old_connections, transaction
+from django.utils import timezone
+
+from sensors.models import SensorDevice, SoundReading
+
+logger = logging.getLogger(__name__)
+
+
+class Command(BaseCommand):
+    help = "Receives sensor telemetry from the MQTT broker and stores it in Django."
+
+    def handle(self, *args, **options):
+        client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"homebot-{os.getenv('DEVICE_ID', 'dashboard')}",
+        )
+        client.username_pw_set(os.getenv("MQTT_USERNAME", ""), os.getenv("MQTT_PASSWORD", ""))
+        client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+        def on_connect(client, _userdata, _flags, reason_code, _properties):
+            if reason_code.is_failure:
+                logger.error("MQTT connection failed: %s", reason_code)
+                return
+            client.subscribe("sensors/+/telemetry", qos=1)
+            self.stdout.write("Connected to MQTT; listening for sensor telemetry")
+
+        def on_message(_client, _userdata, message):
+            parts = message.topic.split("/")
+            if len(parts) != 3 or parts[0] != "sensors" or parts[2] != "telemetry":
+                return
+            try:
+                payload = json.loads(message.payload)
+                detected = payload["sound_detected"]
+                if not isinstance(detected, bool):
+                    raise ValueError("sound_detected must be boolean")
+                pin = payload.get("sound_pin", 27)
+                if not isinstance(pin, int) or not 0 <= pin <= 39:
+                    raise ValueError("sound_pin is invalid")
+            except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                logger.warning("Ignoring invalid MQTT message on %s: %s", message.topic, exc)
+                return
+
+            close_old_connections()
+            with transaction.atomic():
+                device, _ = SensorDevice.objects.update_or_create(
+                    device_id=parts[1],
+                    defaults={
+                        "name": parts[1],
+                        "gpio_pin": pin,
+                        "last_seen": timezone.now(),
+                        "sound_detected": detected,
+                    },
+                )
+                SoundReading.objects.create(device=device, sound_detected=detected)
+            close_old_connections()
+
+        client.on_connect = on_connect
+        client.on_message = on_message
+        host = os.getenv("MQTT_HOST", "localhost")
+        port = int(os.getenv("MQTT_PORT", "1883"))
+        while True:
+            try:
+                client.connect(host, port, keepalive=60)
+                client.loop_forever()
+            except (OSError, mqtt.MQTTException) as exc:
+                logger.warning("MQTT unavailable (%s); retrying in 5 seconds", exc)
+                time.sleep(5)
