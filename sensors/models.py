@@ -44,3 +44,12 @@ class SmokeReading(models.Model):
     class Meta:
         ordering = ["-received_at"]
         indexes = [models.Index(fields=["device", "-received_at"])]
+
+
+class TelemetryReading(models.Model):
+    device = models.ForeignKey(SensorDevice, on_delete=models.CASCADE, related_name="telemetry")
+    payload = models.JSONField()
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["device", "-received_at"])]

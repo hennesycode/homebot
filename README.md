@@ -30,7 +30,7 @@ docker compose down
 
 ## Conectar el ESP32
 
-El worker escucha `sensors/+/telemetry`. En el ESP32 configura el dominio/IP de la VPS como `MQTT_HOST`, puerto `1883` y las mismas credenciales MQTT. Asigna un `MQTT_DEVICE_ID` único por placa. Para LM393, el firmware envía `sound_detected` y `sound_pin` (GPIO27).
+El worker escucha `sensors/+/telemetry`. En el ESP32 configura el dominio/IP de la VPS como `MQTT_HOST`, puerto `1883` y las mismas credenciales MQTT. Asigna un `MQTT_DEVICE_ID` único por placa. Para LM393, el firmware envía `sound_detected` y `sound_pin` (GPIO25 en la configuración actual).
 
 ## Alertas a Hermes
 
@@ -49,3 +49,36 @@ python manage.py runserver
 ```
 
 Las variables y contraseñas reales deben permanecer en `.env`; ese archivo está excluido de Git y de la imagen Docker.
+
+## Laboratorio en vivo (USB local y MQTT remoto)
+
+La página principal muestra siete canales de los cinco sensores: distancia, temperatura,
+humedad, MQ-2 AO/DO, sonido y luz. Los niveles digitales no certifican la conexión física
+ni la polaridad del módulo. No se calculan PPM y no hay datos de demostración.
+
+Para usar directamente el cable USB en el computador:
+
+```sh
+python manage.py migrate
+python manage.py collectstatic --noinput
+HOMEBOT_SOURCE=usb DJANGO_DEBUG=true python manage.py runserver 127.0.0.1:8000 --noreload
+```
+
+Cierra otros monitores seriales. El puente reconoce CP2102 automáticamente; `ESP32_PORT`
+permite fijar un puerto. Reconecta cada 2 s, mantiene 120 muestras por canal en memoria
+y no necesita Wi-Fi. Ejecuta una sola instancia del servidor USB para evitar propietarios
+duplicados del puerto. Las gráficas consultan AJAX cada 0,5–2 s, sin solicitudes solapadas.
+El servo admite 45–135° y requiere firmware con el protocolo `SERVO id angle` /
+`SERVO_ACK id angle`. La confirmación es del PWM solicitado, no de la posición mecánica.
+
+En la VPS, Compose establece `HOMEBOT_SOURCE=mqtt`; `HOMEBOT_DEVICE_ID` selecciona la placa.
+El worker guarda la telemetría completa en `TelemetryReading`, conserva 24 h con limpieza
+horaria y el panel grafica las últimas 120 muestras. Los mensajes retenidos no se cuentan
+como nueva telemetría. El puerto USB del computador no es accesible desde la VPS.
+El control del servo remoto permanece desactivado: antes de habilitarlo se requiere
+autorización de usuarios y transporte seguro. El control USB sí funciona en localhost.
+
+Despliegue: hacer pull de `main` y ejecutar `docker compose up -d --build`, o configurar
+el despliegue automático de esa rama en Dokploy. El arranque aplica la migración aditiva
+0004 sin borrar tablas existentes. Configura el dominio HTTPS hacia el servicio `web:8000`
+y `DJANGO_ALLOWED_HOSTS` con el hostname real. Un push por sí solo no demuestra despliegue.

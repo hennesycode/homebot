@@ -1,0 +1,28 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827"><title>Homebot / Laboratorio en vivo</title>
+  <link rel="stylesheet" href="{% static 'sensors/lab.css' %}">
+  <script src="{% static 'sensors/lab.js' %}" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/">◈ <b>homebot</b><span>Laboratorio de señales</span></a><span class="tag">ESP32 DevKit · Telemetría</span></header>
+  <main>
+    <section class="heading"><div><p class="kicker">Tu circuito, en tiempo real</p><h1>Todo conectado.<br><span>Todo a la vista.</span></h1><p class="intro">Cinco sensores y un actuador. Una ventana a tu ESP32,<br class="desktop"> por USB local o telemetría MQTT desde internet.</p></div><div class="board"><span class="chip" aria-hidden="true">ESP<br>32</span><div><span id="connection" role="status">Buscando ESP32…</span><small id="port">Esperando canal de datos</small><small id="received">Esperando telemetría</small></div></div></section>
+    <div id="warning" class="notice" role="status">Conecta el cable USB. Los datos aparecerán al recibir telemetría.</div>
+    <section class="toolbar"><h2>Señales del circuito <span>7 canales</span></h2><div><label for="refresh">Actualizar cada </label><select id="refresh"><option value="500">500 ms</option><option value="1000" selected>1 segundo</option><option value="2000">2 segundos</option></select></div></section>
+    <div class="sensor-grid" id="sensors"></div>
+    <section class="control-layout">
+      <article class="panel servo-panel"><div class="panel-heading"><div><span class="glyph">↻</span><h2>Movimiento bajo control</h2><p>Servo SG90 · GPIO23 · 50 Hz</p></div><span class="badge">Actuador</span></div>
+        <div class="servo-body"><div class="dial" aria-hidden="true"><div id="servo-arm"></div><span>SG90</span></div><div class="servo-controls"><label for="angle">Ángulo solicitado <output id="angle-value">90°</output></label><input type="range" id="angle" min="45" max="135" value="90" step="1"><div class="range-labels"><span>45°</span><span>90°</span><span>135°</span></div><div class="buttons"><button id="send-servo" type="button" disabled>Aplicar posición</button><button id="center-servo" class="secondary" type="button" disabled>Centrar</button></div><p id="servo-status" role="status">Esperando ESP32</p></div></div>
+        <p class="footnote">Confirmamos la orden PWM, no la posición física. Mantén libre el recorrido del brazo. Alimentación regulada de 5 V y GND común.</p>
+      </article>
+      <article class="panel notes"><h2>Lo que los datos sí dicen</h2><div><span class="signal-dot"></span><p><b>Telemetría reciente</b> significa que llegan datos del ESP32 por el canal seleccionado. No certifica el cableado de cada sensor.</p></div><div><span class="signal-dot amber"></span><p><b>HIGH / LOW</b> son niveles digitales. La polaridad de sonido, luz y MQ-2 necesita una prueba física controlada.</p></div><div><span class="signal-dot blue"></span><p><b>MQ-2 ADC</b> no representa PPM. El divisor de alta impedancia, el calentamiento y la calibración afectan la lectura.</p></div></article>
+    </section>
+    <section class="panel terminal"><div class="panel-heading"><div><h2>Registro del dispositivo</h2><p>Últimos 40 mensajes · sin datos simulados</p></div><button id="toggle-log" class="secondary" type="button" aria-expanded="true">Ocultar registro</button></div><pre id="logs" aria-label="Mensajes seriales recientes">Esperando mensajes…</pre></section>
+    <footer><span>Homebot · Instrumentación local</span><span>Ventana de 120 muestras por canal · Los huecos indican lecturas inválidas</span></footer>
+  </main>
+</body>
+</html>

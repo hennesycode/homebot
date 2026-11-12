@@ -15,7 +15,7 @@ class DashboardApiTests(TestCase):
         response = self.client.get("/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Centro de sensores")
+        self.assertContains(response, "Laboratorio de señales")
 
     def test_devices_reports_pin_state_and_connection(self):
         SensorDevice.objects.create(

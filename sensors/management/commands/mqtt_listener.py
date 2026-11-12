@@ -7,13 +7,14 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import timedelta
 
 import paho.mqtt.client as mqtt
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
-from sensors.models import LightReading, SensorDevice, SmokeReading, SoundReading
+from sensors.models import LightReading, SensorDevice, SmokeReading, SoundReading, TelemetryReading
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class Command(BaseCommand):
     help = "Receives sensor telemetry from the MQTT broker and stores it in Django."
 
     def handle(self, *args, **options):
+        last_cleanup = 0
         client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"homebot-{os.getenv('DEVICE_ID', 'dashboard')}",
@@ -68,6 +70,7 @@ class Command(BaseCommand):
             self.stdout.write("Connected to MQTT; listening for sensor telemetry and events")
 
         def on_message(_client, _userdata, message):
+            nonlocal last_cleanup
             parts = message.topic.split("/")
             if len(parts) != 3 or parts[0] != "sensors" or parts[2] not in ("telemetry", "events"):
                 return
@@ -123,10 +126,19 @@ class Command(BaseCommand):
                         LightReading.objects.create(device=device, detected=light_detected)
                     if smoke_detected is not None and (parts[2] == "telemetry" or changed_sensor == "smoke"):
                         SmokeReading.objects.create(device=device, detected=smoke_detected)
+                    if parts[2] == "telemetry" and not message.retain:
+                        TelemetryReading.objects.create(device=device, payload=payload)
             except DatabaseError:
                 logger.exception("Failed to store telemetry from %s", parts[1])
             finally:
                 close_old_connections()
+
+            if time.monotonic() - last_cleanup > 3600:
+                try:
+                    TelemetryReading.objects.filter(received_at__lt=timezone.now() - timedelta(days=1)).delete()
+                    last_cleanup = time.monotonic()
+                except DatabaseError:
+                    logger.exception("Telemetry history cleanup failed")
 
             if parts[2] == "events" and changed_sensor and payload.get(f"{changed_sensor}_detected") is True:
                 sensor_names = {

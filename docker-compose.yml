@@ -56,6 +56,8 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in Dokploy environment}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?Set DJANGO_ALLOWED_HOSTS in Dokploy environment}
+      HOMEBOT_SOURCE: mqtt
+      HOMEBOT_DEVICE_ID: ${HOMEBOT_DEVICE_ID:-esp32-sensores}
       DB_HOST: db
       DB_PORT: "3306"
       DB_NAME: ${DB_NAME:?Set DB_NAME in Dokploy environment}

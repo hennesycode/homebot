@@ -10,7 +10,7 @@ from .models import SensorDevice
 
 @require_GET
 def dashboard(request):
-    return render(request, "sensors/dashboard.html")
+    return render(request, "sensors/lab.html")
 
 
 @require_GET
