@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import secrets
 import time
 from datetime import timedelta
 from urllib.parse import urlparse
@@ -12,7 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .serial_bridge import bridge
-from .models import SensorDevice, ServoAccessGuard, ServoCommand, TelemetryReading, WebhookDelivery
+from .models import SensorDevice, ServoCommand, TelemetryReading, WebhookDelivery
 from .mqtt_control import publish_servo
 from .servo_contract import servo_state, supports_full_range, valid_angle
 
@@ -43,14 +42,8 @@ def servo(request):
     remote = os.getenv("HOMEBOT_SOURCE", "mqtt") != "usb"
     origin = request.headers.get("Origin")
     if remote:
-        token = os.getenv("HOMEBOT_CONTROL_TOKEN", "")
-        if len(token) < 3:
-            return JsonResponse({"error": "Configura HOMEBOT_CONTROL_TOKEN en el servidor"}, status=403)
         if not origin or urlparse(origin).scheme != "https" or urlparse(origin).netloc != request.get_host():
             return JsonResponse({"error": "Control remoto requiere el mismo dominio HTTPS"}, status=403)
-        error = authorize_servo(request.headers.get("Authorization", ""), token)
-        if error:
-            return error
     elif (request.META.get("REMOTE_ADDR") not in ("127.0.0.1", "::1") or
           origin and urlparse(origin).netloc != request.get_host()):
         return JsonResponse({"error": "Control permitido solo desde el servidor local"}, status=403)
@@ -67,25 +60,6 @@ def servo(request):
     except (ValueError, UnicodeDecodeError) as exc:
         return JsonResponse({"error": str(exc)}, status=409)
     return JsonResponse({"queued": True}, status=202)
-
-
-def authorize_servo(authorization, token):
-    # Global database-backed limit also applies across web workers and client IPs.
-    now = timezone.now()
-    with transaction.atomic():
-        guard, _ = ServoAccessGuard.objects.select_for_update().get_or_create(key="servo")
-        if guard.blocked_until and guard.blocked_until > now:
-            return JsonResponse({"error": "Demasiados intentos. Espera 5 minutos."}, status=429)
-        valid = secrets.compare_digest(authorization.encode(), f"Bearer {token}".encode())
-        guard.failures = 0 if valid else guard.failures + 1
-        guard.blocked_until = None
-        if guard.failures >= 5:
-            guard.failures = 0
-            guard.blocked_until = now + timedelta(minutes=5)
-        guard.save()
-        if not valid:
-            return JsonResponse({"error": "Clave de control incorrecta"}, status=403)
-    return None
 
 
 def remote_servo(angle):
@@ -142,19 +116,16 @@ def mqtt_snapshot():
     pending = bool(latest and latest.status == "pending" and now-latest.created_at.timestamp() < 10)
     labels = {"confirmed": "Orden PWM confirmada (movimiento físico no medido)", "failed": "Orden no aplicada: revisar broker/PWM", "timeout": "Sin confirmación del ESP32"}
     status = ("Esperando confirmación MQTT" if pending else
-              labels.get(latest.status, "Sin confirmación del ESP32")) if latest else "Listo para control MQTT autorizado"
-    configured = len(os.getenv("HOMEBOT_CONTROL_TOKEN", "")) >= 3
+              labels.get(latest.status, "Sin confirmación del ESP32")) if latest else "Listo para control MQTT sin contraseña"
     pwm_initialized = rows[-1].payload.get('servo_ready') if rows else None
     legacy = not rows or not supports_full_range(rows[-1].payload)
     if legacy:
         status += " · Firmware antiguo 45–135°: requiere actualización USB para ampliar rango"
     if pwm_initialized is False:
         status = "ESP32 informa fallo de inicialización PWM"
-    if not configured:
-        status = "Falta configurar HOMEBOT_CONTROL_TOKEN en el servidor"
     return {"source": "mqtt", "usb": False, "online": online, "port": f"MQTT / {device_id}",
             "last_seen": last_seen, "now": now, "data": data, "histories": histories,
-            "logs": logs[-40:], "pending": pending, "control_enabled": configured and pwm_initialized is not False,
+            "logs": logs[-40:], "pending": pending, "control_enabled": pwm_initialized is not False,
             "error": None if online else "Sin telemetría MQTT reciente. Comprueba Wi-Fi, broker y mqtt-worker.",
             "servo": servo_state({"angle": confirmed.angle if confirmed else None, "status": status,
                                   "command_id": latest.pk if latest else None,

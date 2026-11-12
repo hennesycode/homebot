@@ -78,20 +78,22 @@ class MqttLabTests(TestCase):
         self.assertEqual([v["sound_detected"] for v in values], [True,False])
         self.assertEqual([v["sound_gpio_high"] for v in values], [True,True])
 
-    @patch.dict(os.environ, {"HOMEBOT_CONTROL_TOKEN": "486"})
-    def test_pin_throttle_and_reset(self):
-        from .lab_views import authorize_servo
+    @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt"})
+    @patch('sensors.lab_views.remote_servo')
+    def test_passwordless_control_ignores_old_lockout(self, command):
+        from django.http import JsonResponse
         from .models import ServoAccessGuard
         from django.utils import timezone
         from datetime import timedelta
-        self.assertEqual(authorize_servo("Bearer wrong", "486").status_code, 403)
-        self.assertIsNone(authorize_servo("Bearer 486", "486"))
-        self.assertEqual(ServoAccessGuard.objects.get().failures, 0)
-        for _ in range(5):
-            self.assertEqual(authorize_servo("Bearer wrong", "486").status_code, 403)
-        self.assertEqual(authorize_servo("Bearer 486", "486").status_code, 429)
-        ServoAccessGuard.objects.update(blocked_until=timezone.now()-timedelta(seconds=1))
-        self.assertIsNone(authorize_servo("Bearer 486", "486"))
+        ServoAccessGuard.objects.create(key='servo', blocked_until=timezone.now()+timedelta(minutes=5))
+        command.return_value = JsonResponse({'queued': True}, status=202)
+        response = self.client.post('/api/lab/servo/', {'angle': 90}, content_type='application/json', HTTP_ORIGIN='https://testserver')
+        self.assertEqual(response.status_code, 202)
+        command.assert_called_once_with(90)
+        for origin in ('https://evil.example', 'http://testserver', ''):
+            response = self.client.post('/api/lab/servo/', {'angle': 90}, content_type='application/json', HTTP_ORIGIN=origin)
+            self.assertEqual(response.status_code, 403)
+        command.assert_called_once()
 
     def test_full_range_ack_and_pwm_failure(self):
         import json
@@ -126,7 +128,7 @@ class MqttLabTests(TestCase):
         publish.assert_called_once()
 
     @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit"})
-    def test_remote_snapshot_and_control_disabled(self):
+    def test_remote_snapshot_without_control_token(self):
         from .models import SensorDevice, TelemetryReading
         device = SensorDevice.objects.create(device_id="unit", name="ESP32")
         TelemetryReading.objects.create(device=device, payload={"distance_cm": 25.3, "mq2_do_high": False})
@@ -134,7 +136,7 @@ class MqttLabTests(TestCase):
         self.assertTrue(state["online"])
         self.assertEqual(state["source"], "mqtt")
         self.assertEqual(state["data"]["distance_cm"]["value"], 25.3)
-        self.assertFalse(state["control_enabled"])
+        self.assertTrue(state["control_enabled"])
         self.assertTrue(state["logs"])
         self.assertIn("Telemetría MQTT", state["logs"][0]["text"])
         response = self.client.post("/api/lab/servo/", {"angle": 90}, content_type="application/json")
@@ -142,15 +144,13 @@ class MqttLabTests(TestCase):
 
     @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit", "HOMEBOT_CONTROL_TOKEN": "x"*32})
     @patch("sensors.lab_views.publish_servo")
-    def test_remote_authorization_and_firmware_confirmation(self, publish):
+    def test_remote_passwordless_control_and_firmware_confirmation(self, publish):
         import json
         from .models import SensorDevice, ServoCommand, TelemetryReading
         from .management.commands.mqtt_listener import store_servo_ack
         device = SensorDevice.objects.create(device_id="unit", name="ESP32")
         TelemetryReading.objects.create(device=device, payload={"distance_cm": 25})
-        headers = {"HTTP_ORIGIN": "https://testserver", "HTTP_AUTHORIZATION": "Bearer " + "x"*32}
-        missing = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json", HTTP_ORIGIN="https://testserver")
-        self.assertEqual(missing.status_code, 403)
+        headers = {"HTTP_ORIGIN": "https://testserver"}
         response = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json", **headers)
         self.assertEqual(response.status_code, 202)
         command = ServoCommand.objects.get(pk=response.json()["command_id"])

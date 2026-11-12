@@ -223,7 +223,6 @@
     const angle=mode==='replay'?value(s,'servo_angle'):previewChanged||mode==='sim'?servoPreview:value(s,'servo_angle');
     $('model-servo-arm').style.transform=`translateZ(42px) rotateZ(${(angle??90)-180}deg)`;
     $('rig').classList.toggle('flowing',mode!=='live'||s.online);
-    $('physics-auth').hidden=live?.source==='usb';
     const profile=servoProfile(live);
     $('physics-servo-send').disabled=mode!=='live'||recording?.mode==='sim'||!live?.online||!live?.control_enabled||live.pending||servoSending||servoPreview<profile.min_angle||servoPreview>profile.max_angle;
     if(mode==='live')$('servo-model-note').textContent=`El deslizador solo mueve el modelo. Firmware actual: ${profile.min_angle}–${profile.max_angle}° nominales. Pulsa Enviar orden para mover el SG90; ${profile.max_angle<180?'conecta USB para cargar el rango ampliado.':'no fuerces topes; el recorrido físico requiere calibración.'}`;
@@ -414,7 +413,6 @@
     servoSending=true;render();
     try{
       const headers={'Content-Type':'application/json'};
-      if(live.source==='mqtt')headers.Authorization='Bearer '+$('physics-servo-token').value;
       const response=await fetch('/api/lab/servo/',{method:'POST',headers,body:JSON.stringify({angle:servoPreview}),signal:AbortSignal.timeout(8000)});
       const result=await response.json();if(!response.ok)throw new Error(result.error||'Orden rechazada.');
       $('physics-servo-status').textContent='Orden enviada; esperando confirmación del firmware. No implica posición física alcanzada.';

@@ -82,7 +82,6 @@ function render(data) {
   document.querySelector('.range-labels span:first-child').textContent=servoLimits.min+'°';
   document.querySelector('.range-labels span:last-child').textContent=servoLimits.max+'°';
   disableServo(!data.control_enabled||!data.online||data.pending||sending);
-  $('control-auth').hidden=data.source!=='mqtt';
   const request = data.servo.command_id ? ` · Orden #${data.servo.command_id}: ${data.servo.requested_angle}° solicitados` : '';
   const confirmed = data.servo.angle!==null ? ` · Último PWM confirmado: ${data.servo.angle}° nominales${data.servo.pulse_us?' / '+data.servo.pulse_us+' µs':''}` : ' · Sin PWM confirmado';
   $('servo-status').textContent=servoError || data.servo.status+request+confirmed+' · Eje físico no medido';
@@ -94,11 +93,11 @@ function render(data) {
 
 async function refresh() {
   try {
-    const response=await fetch('/api/lab/',{cache:'no-store',signal:AbortSignal.timeout(4000)});
+    const response=await fetch('/api/lab/',{cache:'no-store',signal:AbortSignal.timeout(12000)});
     if(!response.ok) throw new Error('Servidor no disponible');
     render(await response.json());
   } catch(error) {
-    $('warning').textContent='No se pudo actualizar: '+error.message;
+    $('warning').textContent=error.name==='TimeoutError'?'El servidor tardó demasiado. Reintentando automáticamente; no se enviaron órdenes de movimiento.':'No se pudo actualizar: '+error.message;
     $('connection').textContent='Conexión al servidor interrumpida';
     $('connection').className='';
     disableServo(true);
@@ -116,7 +115,6 @@ async function moveServo(angle) {
   disableServo(true);
   try {
     const headers={'Content-Type':'application/json'};
-    if(!$('control-auth').hidden) headers.Authorization='Bearer '+$('control-token').value;
     const response=await fetch('/api/lab/servo/',{method:'POST',headers,body:JSON.stringify({angle}),signal:AbortSignal.timeout(8000)});
     const result=await response.json();
     if(!response.ok) throw new Error(result.error||'No se pudo enviar la orden');

@@ -108,13 +108,12 @@ En la VPS, Compose establece `HOMEBOT_SOURCE=mqtt`; `HOMEBOT_DEVICE_ID` seleccio
 El worker guarda la telemetría completa en `TelemetryReading`, conserva 24 h con limpieza
 horaria y el panel grafica las últimas 120 muestras. Los mensajes retenidos no se cuentan
 como nueva telemetría. El puerto USB del computador no es accesible desde la VPS.
-El control del servo remoto requiere `HOMEBOT_CONTROL_TOKEN`, dominio HTTPS y firmware
-con suscripción `sensors/<id>/servo/set`. Por petición del montaje de demostración,
-Compose usa `486` si no hay otro valor definido. Este PIN es débil: reemplázalo por
-una clave aleatoria larga antes de un uso público continuo. Tras 5 fallos se bloquean
-los intentos de control durante 5 minutos (límite compartido por los procesos web).
-Configura la variable en Dokploy y vuelve a desplegar; introduce la misma clave en
-el campo de control del panel. No se almacena en el navegador ni se entrega en la API.
+El control remoto no requiere contraseña por petición del montaje de demostración.
+Cualquier visitante del dominio puede enviar órdenes físicas. Restringe el acceso al
+dominio mediante red privada si necesitas limitar quién lo controla. Se conserva la
+comprobación del mismo origen HTTPS, validación de ángulos y una sola orden pendiente.
+`HOMEBOT_CONTROL_TOKEN` y los bloqueos antiguos de PIN ya no se consultan.
+El firmware requiere suscripción `sensors/<id>/servo/set`.
 Las órdenes no se retienen en MQTT; caducan tras 10 s sin confirmación del firmware.
 `ServoCommand` registra solicitudes y ACK: publicar no equivale a mover físicamente el eje.
 El worker escucha `sensors/+/servo/status`. El control USB sigue disponible en localhost.
@@ -128,8 +127,8 @@ se interpreta únicamente como alarma del umbral: LOW activa por defecto, config
 con `HOMEBOT_MQ2_ACTIVE_LOW=false` si se verifica la polaridad contraria. «Sin alarma»
 no certifica ausencia de gas; el módulo necesita calentamiento y calibración.
 El broker existente en 1883 sigue sin cifrar: usa TLS/8883 y certificados válidos en
-ambos extremos antes de exponer MQTT a redes no confiables. La clave HTTPS protege
-el endpoint web, pero no cifra el enlace MQTT del ESP32.
+ambos extremos antes de exponer MQTT a redes no confiables. HTTPS no cifra el enlace
+MQTT del ESP32 y el control web de este montaje es público, sin autenticación.
 
 Despliegue: hacer pull de `main` y ejecutar `docker compose up -d --build`, o configurar
 el despliegue automático de esa rama en Dokploy. El arranque aplica la migración aditiva
