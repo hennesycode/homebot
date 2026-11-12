@@ -75,8 +75,11 @@ En la VPS, Compose establece `HOMEBOT_SOURCE=mqtt`; `HOMEBOT_DEVICE_ID` seleccio
 El worker guarda la telemetría completa en `TelemetryReading`, conserva 24 h con limpieza
 horaria y el panel grafica las últimas 120 muestras. Los mensajes retenidos no se cuentan
 como nueva telemetría. El puerto USB del computador no es accesible desde la VPS.
-El control del servo remoto requiere `HOMEBOT_CONTROL_TOKEN` (32 caracteres aleatorios
-como mínimo), dominio HTTPS y firmware con suscripción `sensors/<id>/servo/set`.
+El control del servo remoto requiere `HOMEBOT_CONTROL_TOKEN`, dominio HTTPS y firmware
+con suscripción `sensors/<id>/servo/set`. Por petición del montaje de demostración,
+Compose usa `486` si no hay otro valor definido. Este PIN es débil: reemplázalo por
+una clave aleatoria larga antes de un uso público continuo. Tras 5 fallos se bloquean
+los intentos de control durante 5 minutos (límite compartido por los procesos web).
 Configura la variable en Dokploy y vuelve a desplegar; introduce la misma clave en
 el campo de control del panel. No se almacena en el navegador ni se entrega en la API.
 Las órdenes no se retienen en MQTT; caducan tras 10 s sin confirmación del firmware.
@@ -85,6 +88,12 @@ El worker escucha `sensors/+/servo/status`. El control USB sigue disponible en l
 El registro remoto muestra las 40 últimas recepciones de telemetría/órdenes MQTT;
 no es una copia del monitor serial USB ni incluye mensajes emitidos sin conexión.
 Luz se interpreta como LOW = con luz, HIGH = sin luz, según la prueba del montaje actual.
+Sonido grafica `sound_detected` (pulso retenido 1 s), no el nivel GPIO instantáneo.
+El firmware captura flancos por interrupción y el worker guarda también los eventos
+entre telemetrías para no omitirlos en el historial. El MQ-2 DO se lee cada 100 ms y
+se interpreta únicamente como alarma del umbral: LOW activa por defecto, configurable
+con `HOMEBOT_MQ2_ACTIVE_LOW=false` si se verifica la polaridad contraria. «Sin alarma»
+no certifica ausencia de gas; el módulo necesita calentamiento y calibración.
 El broker existente en 1883 sigue sin cifrar: usa TLS/8883 y certificados válidos en
 ambos extremos antes de exponer MQTT a redes no confiables. La clave HTTPS protege
 el endpoint web, pero no cifra el enlace MQTT del ESP32.

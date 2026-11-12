@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .serial_bridge import bridge
-from .models import SensorDevice, ServoCommand, TelemetryReading
+from .models import SensorDevice, ServoAccessGuard, ServoCommand, TelemetryReading
 from .mqtt_control import publish_servo
 
 
@@ -24,6 +24,7 @@ def state(request):
         data["control_enabled"] = True
     else:
         data = mqtt_snapshot()
+    data["mq2_active_low"] = os.getenv("HOMEBOT_MQ2_ACTIVE_LOW", "true").lower() == "true"
     response = JsonResponse(data)
     response["Cache-Control"] = "no-store"
     return response
@@ -35,12 +36,13 @@ def servo(request):
     origin = request.headers.get("Origin")
     if remote:
         token = os.getenv("HOMEBOT_CONTROL_TOKEN", "")
-        if len(token) < 32:
-            return JsonResponse({"error": "Configura HOMEBOT_CONTROL_TOKEN (mínimo 32 caracteres) en el servidor"}, status=403)
+        if len(token) < 3:
+            return JsonResponse({"error": "Configura HOMEBOT_CONTROL_TOKEN en el servidor"}, status=403)
         if not origin or urlparse(origin).scheme != "https" or urlparse(origin).netloc != request.get_host():
             return JsonResponse({"error": "Control remoto requiere el mismo dominio HTTPS"}, status=403)
-        if not secrets.compare_digest(request.headers.get("Authorization", "").encode(), f"Bearer {token}".encode()):
-            return JsonResponse({"error": "Clave de control incorrecta"}, status=403)
+        error = authorize_servo(request.headers.get("Authorization", ""), token)
+        if error:
+            return error
     elif (request.META.get("REMOTE_ADDR") not in ("127.0.0.1", "::1") or
           origin and urlparse(origin).netloc != request.get_host()):
         return JsonResponse({"error": "Control permitido solo desde el servidor local"}, status=403)
@@ -57,6 +59,25 @@ def servo(request):
     except (ValueError, UnicodeDecodeError) as exc:
         return JsonResponse({"error": str(exc)}, status=409)
     return JsonResponse({"queued": True}, status=202)
+
+
+def authorize_servo(authorization, token):
+    # Global database-backed limit also applies across web workers and client IPs.
+    now = timezone.now()
+    with transaction.atomic():
+        guard, _ = ServoAccessGuard.objects.select_for_update().get_or_create(key="servo")
+        if guard.blocked_until and guard.blocked_until > now:
+            return JsonResponse({"error": "Demasiados intentos. Espera 5 minutos."}, status=429)
+        valid = secrets.compare_digest(authorization.encode(), f"Bearer {token}".encode())
+        guard.failures = 0 if valid else guard.failures + 1
+        guard.blocked_until = None
+        if guard.failures >= 5:
+            guard.failures = 0
+            guard.blocked_until = now + timedelta(minutes=5)
+        guard.save()
+        if not valid:
+            return JsonResponse({"error": "Clave de control incorrecta"}, status=403)
+    return None
 
 
 def remote_servo(angle):
@@ -85,7 +106,7 @@ def mqtt_snapshot():
     rows = list(TelemetryReading.objects.filter(device_id=device_id).order_by("-received_at")[:120])
     rows.reverse()
     histories, data = {}, {}
-    keys = ("distance_cm", "temperature_c", "humidity_pct", "sound_gpio_high",
+    keys = ("distance_cm", "temperature_c", "humidity_pct", "sound_gpio_high", "sound_detected",
             "light_gpio_high", "mq2_do_high", "mq2_ao_raw")
     for row in rows:
         at = row.received_at.timestamp()
@@ -109,7 +130,7 @@ def mqtt_snapshot():
     labels = {"confirmed": "Orden PWM confirmada", "failed": "Error al publicar en MQTT", "timeout": "Sin confirmación del ESP32"}
     status = ("Esperando confirmación MQTT" if pending else
               labels.get(latest.status, "Sin confirmación del ESP32")) if latest else "Listo para control MQTT autorizado"
-    configured = len(os.getenv("HOMEBOT_CONTROL_TOKEN", "")) >= 32
+    configured = len(os.getenv("HOMEBOT_CONTROL_TOKEN", "")) >= 3
     if not configured:
         status = "Falta configurar HOMEBOT_CONTROL_TOKEN en el servidor"
     return {"source": "mqtt", "usb": False, "online": online, "port": f"MQTT / {device_id}",

@@ -61,3 +61,9 @@ class ServoCommand(models.Model):
     status = models.CharField(max_length=20, default="pending")
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True)
+
+
+class ServoAccessGuard(models.Model):
+    key = models.CharField(max_length=20, primary_key=True)
+    failures = models.PositiveSmallIntegerField(default=0)
+    blocked_until = models.DateTimeField(null=True)

@@ -70,7 +70,7 @@ class SerialBridge:
                     return
                 if not isinstance(data, dict) or "distance_cm" not in data:
                     return
-                for key in ("distance_cm", "temperature_c", "humidity_pct", "sound_gpio_high",
+                for key in ("distance_cm", "temperature_c", "humidity_pct", "sound_gpio_high", "sound_detected",
                             "light_gpio_high", "mq2_do_high", "mq2_ao_raw"):
                     if key in data:
                         self.record(key, data[key], now)

@@ -46,6 +46,41 @@ class LabTests(SimpleTestCase):
 
 
 class MqttLabTests(TestCase):
+    @patch("sensors.management.commands.mqtt_listener.send_hermes_alert")
+    @patch("sensors.management.commands.mqtt_listener.mqtt.Client")
+    def test_transient_sound_events_are_saved(self, mqtt_client, alert):
+        import json
+        from types import SimpleNamespace
+        from .management.commands.mqtt_listener import Command
+        from .models import TelemetryReading
+        client = mqtt_client.return_value
+        client.loop_forever.side_effect = StopIteration
+        with self.assertRaises(StopIteration):
+            Command().handle()
+        for active in (True, False):
+            client.on_message(client, None, SimpleNamespace(
+                topic="sensors/unit/events", retain=False,
+                payload=json.dumps({"sound_detected":active,"sound_gpio_high":True,
+                                    "changed_sensor":"sound"}).encode()))
+        values = list(TelemetryReading.objects.order_by("received_at").values_list("payload",flat=True))
+        self.assertEqual([v["sound_detected"] for v in values], [True,False])
+        self.assertEqual([v["sound_gpio_high"] for v in values], [True,True])
+
+    @patch.dict(os.environ, {"HOMEBOT_CONTROL_TOKEN": "486"})
+    def test_pin_throttle_and_reset(self):
+        from .lab_views import authorize_servo
+        from .models import ServoAccessGuard
+        from django.utils import timezone
+        from datetime import timedelta
+        self.assertEqual(authorize_servo("Bearer wrong", "486").status_code, 403)
+        self.assertIsNone(authorize_servo("Bearer 486", "486"))
+        self.assertEqual(ServoAccessGuard.objects.get().failures, 0)
+        for _ in range(5):
+            self.assertEqual(authorize_servo("Bearer wrong", "486").status_code, 403)
+        self.assertEqual(authorize_servo("Bearer 486", "486").status_code, 429)
+        ServoAccessGuard.objects.update(blocked_until=timezone.now()-timedelta(seconds=1))
+        self.assertIsNone(authorize_servo("Bearer 486", "486"))
+
     @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit"})
     def test_remote_snapshot_and_control_disabled(self):
         from .models import SensorDevice, TelemetryReading

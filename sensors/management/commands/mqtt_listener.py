@@ -123,7 +123,7 @@ class Command(BaseCommand):
                 if not isinstance(smoke_pin, int) or not 0 <= smoke_pin <= 39:
                     raise ValueError("smoke_pin is invalid")
                 changed_sensor = payload.get("changed_sensor")
-                if changed_sensor not in (None, "sound", "light", "smoke"):
+                if changed_sensor not in (None, "sound", "light", "smoke", "mq2"):
                     raise ValueError("changed_sensor is invalid")
             except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
                 logger.warning("Ignoring invalid MQTT message on %s: %s", message.topic, exc)
@@ -151,7 +151,7 @@ class Command(BaseCommand):
                         LightReading.objects.create(device=device, detected=light_detected)
                     if smoke_detected is not None and (parts[2] == "telemetry" or changed_sensor == "smoke"):
                         SmokeReading.objects.create(device=device, detected=smoke_detected)
-                    if parts[2] == "telemetry" and not message.retain:
+                    if not message.retain:
                         TelemetryReading.objects.create(device=device, payload=payload)
             except DatabaseError:
                 logger.exception("Failed to store telemetry from %s", parts[1])

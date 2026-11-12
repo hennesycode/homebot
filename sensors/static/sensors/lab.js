@@ -3,14 +3,28 @@ const channels = [
   {key:'temperature_c', name:'Temperatura', pin:'DHT11 · GPIO32', unit:'°C', note:'Muestra DHT11 · cada 2 segundos'},
   {key:'humidity_pct', name:'Humedad', pin:'DHT11 · GPIO32', unit:'% RH', note:'Humedad relativa · cada 2 segundos'},
   {key:'mq2_ao_raw', name:'Gas · salida analógica', pin:'MQ-2 AO · GPIO34 / ADC1', unit:'/ 4095', note:'ADC bruto · no calibrado, no PPM'},
-  {key:'mq2_do_high', name:'Gas · salida digital', pin:'MQ-2 DO · GPIO27', unit:'', digital:true, note:'Polaridad y umbral sin calibrar'},
-  {key:'sound_gpio_high', name:'Sonido', pin:'OUT · GPIO25', unit:'', digital:true, note:'Nivel digital, no decibelios'},
+  {key:'mq2_do_high', name:'Gas · salida digital', pin:'MQ-2 DO · GPIO27', unit:'', digital:true, note:'Alarma del umbral · sin calibrar; no certifica ausencia de gas'},
+  {key:'sound_detected', name:'Sonido', pin:'OUT · GPIO25', unit:'', digital:true, note:'Pulsos detectados · retención 1 s; no mide decibelios'},
   {key:'light_gpio_high', name:'Luz', pin:'DO · GPIO26', unit:'', digital:true, note:'LOW = con luz · HIGH = sin luz (según prueba del usuario)'}
 ];
 const $ = (id) => document.getElementById(id);
 const clock = (at) => new Date(at * 1000).toLocaleTimeString('es', {hour12:false});
 let sending = false;
 let servoError = '';
+let mq2ActiveLow = true;
+
+function digitalActive(channel, value) {
+  if (channel.key === 'light_gpio_high') return !value;
+  if (channel.key === 'mq2_do_high') return mq2ActiveLow ? !value : Boolean(value);
+  return Boolean(value);
+}
+
+function digitalLabel(channel, value) {
+  const active = digitalActive(channel, value);
+  if (channel.key === 'light_gpio_high') return active ? 'Con luz' : 'Sin luz';
+  if (channel.key === 'sound_detected') return active ? 'Con sonido' : 'Sin sonido';
+  return active ? 'Alarma de gas' : 'Sin alarma';
+}
 channels.forEach(c => {
   const article = document.createElement('article');
   article.className = 'sensor';
@@ -32,15 +46,17 @@ function chart(c, points) {
   const start = points[0][0], duration = Math.max(points.at(-1)[0]-start, 1);
   points.forEach(([at,v]) => {
     if (v === null || !Number.isFinite(v)) { previous=false; return; }
-    const x = 300*(at-start)/duration, y = constant ? 50 : 85-70*(v-min)/span;
+    const plotted = c.digital ? Number(digitalActive(c,v)) : v;
+    const x = 300*(at-start)/duration, y = constant ? 50 : 85-70*(plotted-min)/span;
     path += `${previous ? (c.digital ? 'H'+x+' V' : 'L'+x+' ') : 'M'+x+' '}${y} `;
     previous=true;
   });
   $('plot-'+c.key).setAttribute('d',path);
-  $('stats-'+c.key).textContent = c.digital ? `${c.key==='light_gpio_high'?'0 con luz / 1 sin luz':'LOW 0 / HIGH 1'} · ${values.length} muestras` : `Mín ${min.toFixed(1)} / Máx ${max.toFixed(1)}`;
+  $('stats-'+c.key).textContent = c.digital ? `1 = ${c.key==='light_gpio_high'?'con luz':c.key==='sound_detected'?'con sonido':'alarma'} · ${values.length} muestras` : `Mín ${min.toFixed(1)} / Máx ${max.toFixed(1)}`;
 }
 
 function render(data) {
+  mq2ActiveLow = data.mq2_active_low !== false;
   $('connection').textContent=data.online?'ESP32 conectado':data.usb?'USB abierto · esperando datos':'ESP32 desconectado';
   $('connection').className=data.online?'online':'';
   $('port').textContent=data.port || 'Buscando adaptador CP2102';
@@ -50,7 +66,7 @@ function render(data) {
   channels.forEach(c=>{
     const sample=data.data[c.key], valid=sample && sample.value!==null;
     const fresh=data.online && sample && data.now-sample.at<6;
-    $('value-'+c.key).textContent=valid?(c.key==='light_gpio_high'?(sample.value?'Sin luz':'Con luz'):c.digital?(sample.value?'HIGH':'LOW'):c.key==='mq2_ao_raw'?Math.round(sample.value):sample.value.toFixed(1)):'—';
+    $('value-'+c.key).textContent=valid?(c.digital?digitalLabel(c,sample.value):c.key==='mq2_ao_raw'?Math.round(sample.value):sample.value.toFixed(1)):'—';
     $('status-'+c.key).textContent=!fresh?'Sin señal reciente':valid?'Datos recibidos':'Lectura inválida';
     $('status-'+c.key).className='badge'+(fresh&&valid?' live':'');
     $('time-'+c.key).textContent=sample?clock(sample.at):'—';
