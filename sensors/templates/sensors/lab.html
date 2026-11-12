@@ -23,6 +23,7 @@
       <article class="panel notes"><h2>Lo que los datos sí dicen</h2><div><span class="signal-dot"></span><p><b>Telemetría reciente</b> significa que llegan datos del ESP32 por el canal seleccionado. No certifica el cableado de cada sensor.</p></div><div><span class="signal-dot amber"></span><p><b>HIGH / LOW</b> son niveles digitales. La polaridad de sonido, luz y MQ-2 necesita una prueba física controlada.</p></div><div><span class="signal-dot blue"></span><p><b>MQ-2 ADC</b> no representa PPM. El divisor de alta impedancia, el calentamiento y la calibración afectan la lectura.</p></div></article>
     </section>
     <section class="panel terminal"><div class="panel-heading"><div><h2>Registro del dispositivo</h2><p>Últimos 40 mensajes · sin datos simulados</p></div><button id="toggle-log" class="secondary" type="button" aria-expanded="true">Ocultar registro</button></div><pre id="logs" aria-label="Mensajes seriales recientes">Esperando mensajes…</pre></section>
+    <nav class="panel" aria-label="Más laboratorios"><a href="{% url 'physics-lab' %}"><strong>⚡ Physics Lab 3D</strong> · Explora electricidad, magnetismo y experimentos con tus sensores.</a></nav>
     <footer><span>Homebot · Instrumentación local</span><span>Ventana de 120 muestras por canal · Los huecos indican lecturas inválidas</span></footer>
   </main>
 </body>

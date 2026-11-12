@@ -122,3 +122,30 @@ Despliegue: hacer pull de `main` y ejecutar `docker compose up -d --build`, o co
 el despliegue automático de esa rama en Dokploy. El arranque aplica la migración aditiva
 0004/0005 sin borrar tablas existentes. Configura el dominio HTTPS hacia el servicio `web:8000`
 y `DJANGO_ALLOWED_HOSTS` con el hostname real. Un push por sí solo no demuestra despliegue.
+
+## Physics Lab 3D (módulo independiente)
+
+Acceso en `/physics/` y desde el enlace añadido al final del dashboard. No modifica
+firmware, controles, webhooks ni adquisición. `/api/physics/telemetry/` es un adaptador
+GET de los mismos servicios USB/MQTT: añade historial de ACK confirmados del servo,
+sin abrir otra conexión serial ni otro suscriptor MQTT.
+
+- Montaje CSS 3D con seis componentes, giro/zoom, señales conceptuales y valores vigentes.
+- Física aplicada: transducción, fotoconductividad, SnO₂, humedad y motor electromagnético.
+- Circuitos: divisores, V=IR, Rth y modelo MQ-2; entradas ajustables, siempre teóricas.
+- Analizador: historial y estados, no osciloscopio. ECHO se infiere de d redondeada a
+  343 m/s; v(T)=331,3+0,606T es una compensación didáctica, no una nueva medida.
+- Experimentos A–D: registro de hasta 600 muestras/10 min, media, extremos, σ y error
+  frente a referencia. Se conservan timestamps por canal y eventos intermedios disponibles.
+- Sesiones en IndexedDB de este navegador; reproducción no actúa sobre el hardware.
+  Exporta JSON, CSV o informe HTML con gráfica y ecuaciones. No hay sincronización cloud.
+
+Datos reales, simulación y reproducción están rotulados. Cambiar sliders no mueve el
+servo: solo el botón explícito de envío, con confirmación del visitante y la autorización
+existente, puede enviar una orden de 45–135°. No se afirman lux, PPM, corriente, campo
+magnético, seguridad de voltajes ni posición real del eje sin sensores adicionales.
+Las animaciones describen conceptos; no generan mediciones nuevas ni prueban causalidad.
+
+Validación adicional: `node --test sensors/test_physics_math.cjs` y
+`python manage.py test sensors.test_physics`. Los recursos son locales, sin librerías 3D
+ni CDN: se publican con el `collectstatic` existente. No requiere migración de base de datos.
