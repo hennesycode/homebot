@@ -5,11 +5,12 @@ const channels = [
   {key:'mq2_ao_raw', name:'Gas · salida analógica', pin:'MQ-2 AO · GPIO34 / ADC1', unit:'/ 4095', note:'ADC bruto · no calibrado, no PPM'},
   {key:'mq2_do_high', name:'Gas · salida digital', pin:'MQ-2 DO · GPIO27', unit:'', digital:true, note:'Polaridad y umbral sin calibrar'},
   {key:'sound_gpio_high', name:'Sonido', pin:'OUT · GPIO25', unit:'', digital:true, note:'Nivel digital, no decibelios'},
-  {key:'light_gpio_high', name:'Luz', pin:'DO · GPIO26', unit:'', digital:true, note:'Nivel digital, no lux'}
+  {key:'light_gpio_high', name:'Luz', pin:'DO · GPIO26', unit:'', digital:true, note:'LOW = con luz · HIGH = sin luz (según prueba del usuario)'}
 ];
 const $ = (id) => document.getElementById(id);
 const clock = (at) => new Date(at * 1000).toLocaleTimeString('es', {hour12:false});
 let sending = false;
+let servoError = '';
 channels.forEach(c => {
   const article = document.createElement('article');
   article.className = 'sensor';
@@ -36,7 +37,7 @@ function chart(c, points) {
     previous=true;
   });
   $('plot-'+c.key).setAttribute('d',path);
-  $('stats-'+c.key).textContent = c.digital ? `LOW 0 / HIGH 1 · ${values.length} muestras` : `Mín ${min.toFixed(1)} / Máx ${max.toFixed(1)}`;
+  $('stats-'+c.key).textContent = c.digital ? `${c.key==='light_gpio_high'?'0 con luz / 1 sin luz':'LOW 0 / HIGH 1'} · ${values.length} muestras` : `Mín ${min.toFixed(1)} / Máx ${max.toFixed(1)}`;
 }
 
 function render(data) {
@@ -49,17 +50,18 @@ function render(data) {
   channels.forEach(c=>{
     const sample=data.data[c.key], valid=sample && sample.value!==null;
     const fresh=data.online && sample && data.now-sample.at<6;
-    $('value-'+c.key).textContent=valid?(c.digital?(sample.value?'HIGH':'LOW'):c.key==='mq2_ao_raw'?Math.round(sample.value):sample.value.toFixed(1)):'—';
+    $('value-'+c.key).textContent=valid?(c.key==='light_gpio_high'?(sample.value?'Sin luz':'Con luz'):c.digital?(sample.value?'HIGH':'LOW'):c.key==='mq2_ao_raw'?Math.round(sample.value):sample.value.toFixed(1)):'—';
     $('status-'+c.key).textContent=!fresh?'Sin señal reciente':valid?'Datos recibidos':'Lectura inválida';
     $('status-'+c.key).className='badge'+(fresh&&valid?' live':'');
     $('time-'+c.key).textContent=sample?clock(sample.at):'—';
     chart(c,data.histories[c.key]||[]);
   });
   $('send-servo').disabled=$('center-servo').disabled=!data.control_enabled||!data.online||data.pending||sending;
-  $('servo-status').textContent=data.servo.status+(data.servo.angle!==null?` · ${data.servo.angle}° confirmados por firmware`:'');
+  $('control-auth').hidden=data.source!=='mqtt';
+  $('servo-status').textContent=servoError || data.servo.status+(data.servo.angle!==null?` · ${data.servo.angle}° confirmados por firmware`:'');
   if(data.servo.angle!==null) $('servo-arm').style.transform=`rotate(${data.servo.angle-180}deg)`;
   const log=$('logs'), nearBottom=log.scrollHeight-log.scrollTop-log.clientHeight<50;
-  log.textContent=data.logs.map(l=>`${clock(l.at)}  ${l.text}`).join('\n')||'Esperando mensajes…';
+  log.textContent=data.logs.map(l=>`${clock(l.at)}  ${l.text}`).join('\n')||(data.source==='mqtt'?'Sin registros MQTT recientes. El dominio no recibe el monitor USB.':'Esperando mensajes…');
   if(nearBottom) log.scrollTop=log.scrollHeight;
 }
 
@@ -80,13 +82,16 @@ async function refresh() {
 }
 async function moveServo(angle) {
   sending=true;
+  servoError='';
   $('send-servo').disabled=$('center-servo').disabled=true;
   try {
-    const response=await fetch('/api/lab/servo/',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({angle}),signal:AbortSignal.timeout(4000)});
+    const headers={'Content-Type':'application/json'};
+    if(!$('control-auth').hidden) headers.Authorization='Bearer '+$('control-token').value;
+    const response=await fetch('/api/lab/servo/',{method:'POST',headers,body:JSON.stringify({angle}),signal:AbortSignal.timeout(8000)});
     const result=await response.json();
     if(!response.ok) throw new Error(result.error||'No se pudo enviar la orden');
     $('servo-status').textContent='Orden enviada. Esperando confirmación PWM…';
-  } catch(error) { $('servo-status').textContent=error.message; }
+  } catch(error) { servoError=error.message; $('servo-status').textContent=servoError; }
   finally { sending=false; }
 }
 $('angle').addEventListener('input',()=>{$('angle-value').textContent=$('angle').value+'°';});

@@ -75,10 +75,21 @@ En la VPS, Compose establece `HOMEBOT_SOURCE=mqtt`; `HOMEBOT_DEVICE_ID` seleccio
 El worker guarda la telemetría completa en `TelemetryReading`, conserva 24 h con limpieza
 horaria y el panel grafica las últimas 120 muestras. Los mensajes retenidos no se cuentan
 como nueva telemetría. El puerto USB del computador no es accesible desde la VPS.
-El control del servo remoto permanece desactivado: antes de habilitarlo se requiere
-autorización de usuarios y transporte seguro. El control USB sí funciona en localhost.
+El control del servo remoto requiere `HOMEBOT_CONTROL_TOKEN` (32 caracteres aleatorios
+como mínimo), dominio HTTPS y firmware con suscripción `sensors/<id>/servo/set`.
+Configura la variable en Dokploy y vuelve a desplegar; introduce la misma clave en
+el campo de control del panel. No se almacena en el navegador ni se entrega en la API.
+Las órdenes no se retienen en MQTT; caducan tras 10 s sin confirmación del firmware.
+`ServoCommand` registra solicitudes y ACK: publicar no equivale a mover físicamente el eje.
+El worker escucha `sensors/+/servo/status`. El control USB sigue disponible en localhost.
+El registro remoto muestra las 40 últimas recepciones de telemetría/órdenes MQTT;
+no es una copia del monitor serial USB ni incluye mensajes emitidos sin conexión.
+Luz se interpreta como LOW = con luz, HIGH = sin luz, según la prueba del montaje actual.
+El broker existente en 1883 sigue sin cifrar: usa TLS/8883 y certificados válidos en
+ambos extremos antes de exponer MQTT a redes no confiables. La clave HTTPS protege
+el endpoint web, pero no cifra el enlace MQTT del ESP32.
 
 Despliegue: hacer pull de `main` y ejecutar `docker compose up -d --build`, o configurar
 el despliegue automático de esa rama en Dokploy. El arranque aplica la migración aditiva
-0004 sin borrar tablas existentes. Configura el dominio HTTPS hacia el servicio `web:8000`
+0004/0005 sin borrar tablas existentes. Configura el dominio HTTPS hacia el servicio `web:8000`
 y `DJANGO_ALLOWED_HOSTS` con el hostname real. Un push por sí solo no demuestra despliegue.

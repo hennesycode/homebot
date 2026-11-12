@@ -53,3 +53,11 @@ class TelemetryReading(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["device", "-received_at"])]
+
+
+class ServoCommand(models.Model):
+    device_id = models.CharField(max_length=100, db_index=True)
+    angle = models.PositiveSmallIntegerField()
+    status = models.CharField(max_length=20, default="pending")
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True)

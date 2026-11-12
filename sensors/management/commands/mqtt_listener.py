@@ -14,9 +14,20 @@ from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
 
-from sensors.models import LightReading, SensorDevice, SmokeReading, SoundReading, TelemetryReading
+from sensors.models import LightReading, SensorDevice, ServoCommand, SmokeReading, SoundReading, TelemetryReading
 
 logger = logging.getLogger(__name__)
+
+
+def store_servo_ack(device_id, payload):
+    ack = json.loads(payload)
+    if (not isinstance(ack, dict) or type(ack.get("id")) is not int or
+            type(ack.get("angle")) is not int or not 45 <= ack["angle"] <= 135):
+        raise ValueError("Invalid servo acknowledgement")
+    return ServoCommand.objects.filter(pk=ack["id"], device_id=device_id,
+                                       angle=ack["angle"], status="pending",
+                                       created_at__gte=timezone.now()-timedelta(seconds=10)).update(
+        status="confirmed", confirmed_at=timezone.now())
 
 
 def send_hermes_alert(payload):
@@ -59,6 +70,8 @@ class Command(BaseCommand):
             client_id=f"homebot-{os.getenv('DEVICE_ID', 'dashboard')}",
         )
         client.username_pw_set(os.getenv("MQTT_USERNAME", ""), os.getenv("MQTT_PASSWORD", ""))
+        if os.getenv("MQTT_TLS", "false").lower() == "true":
+            client.tls_set()
         client.reconnect_delay_set(min_delay=1, max_delay=30)
 
         def on_connect(client, _userdata, _flags, reason_code, _properties):
@@ -67,11 +80,23 @@ class Command(BaseCommand):
                 return
             client.subscribe("sensors/+/telemetry", qos=1)
             client.subscribe("sensors/+/events", qos=1)
+            client.subscribe("sensors/+/servo/status", qos=1)
             self.stdout.write("Connected to MQTT; listening for sensor telemetry and events")
 
         def on_message(_client, _userdata, message):
             nonlocal last_cleanup
             parts = message.topic.split("/")
+            if len(parts) == 4 and parts[0] == "sensors" and parts[2:] == ["servo", "status"]:
+                if message.retain:
+                    return
+                try:
+                    close_old_connections()
+                    store_servo_ack(parts[1], message.payload)
+                except (ValueError, TypeError, UnicodeDecodeError, DatabaseError):
+                    logger.warning("Invalid or unavailable servo acknowledgement")
+                finally:
+                    close_old_connections()
+                return
             if len(parts) != 3 or parts[0] != "sensors" or parts[2] not in ("telemetry", "events"):
                 return
             try:

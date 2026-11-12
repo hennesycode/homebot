@@ -56,5 +56,43 @@ class MqttLabTests(TestCase):
         self.assertEqual(state["source"], "mqtt")
         self.assertEqual(state["data"]["distance_cm"]["value"], 25.3)
         self.assertFalse(state["control_enabled"])
+        self.assertTrue(state["logs"])
+        self.assertIn("Telemetría MQTT", state["logs"][0]["text"])
         response = self.client.post("/api/lab/servo/", {"angle": 90}, content_type="application/json")
         self.assertEqual(response.status_code, 403)
+
+    @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit", "HOMEBOT_CONTROL_TOKEN": "x"*32})
+    @patch("sensors.lab_views.publish_servo")
+    def test_remote_authorization_and_firmware_confirmation(self, publish):
+        import json
+        from .models import SensorDevice, ServoCommand, TelemetryReading
+        from .management.commands.mqtt_listener import store_servo_ack
+        device = SensorDevice.objects.create(device_id="unit", name="ESP32")
+        TelemetryReading.objects.create(device=device, payload={"distance_cm": 25})
+        headers = {"HTTP_ORIGIN": "https://testserver", "HTTP_AUTHORIZATION": "Bearer " + "x"*32}
+        missing = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json", HTTP_ORIGIN="https://testserver")
+        self.assertEqual(missing.status_code, 403)
+        response = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json", **headers)
+        self.assertEqual(response.status_code, 202)
+        command = ServoCommand.objects.get(pk=response.json()["command_id"])
+        publish.assert_called_once()
+        self.assertTrue(self.client.get("/api/lab/").json()["pending"])
+        duplicate = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json", **headers)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(store_servo_ack("other", json.dumps({"id":command.pk,"angle":90})), 0)
+        self.assertEqual(store_servo_ack("unit", json.dumps({"id":command.pk,"angle":91})), 0)
+        self.assertEqual(store_servo_ack("unit", json.dumps({"id":command.pk,"angle":90})), 1)
+        snapshot = self.client.get("/api/lab/").json()
+        self.assertFalse(snapshot["pending"])
+        self.assertEqual(snapshot["servo"]["angle"], 90)
+
+    @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit", "HOMEBOT_CONTROL_TOKEN": "x"*32})
+    @patch("sensors.lab_views.publish_servo", side_effect=TimeoutError)
+    def test_remote_broker_failure_is_not_confirmation(self, publish):
+        from .models import SensorDevice, ServoCommand, TelemetryReading
+        device = SensorDevice.objects.create(device_id="unit", name="ESP32")
+        TelemetryReading.objects.create(device=device, payload={"distance_cm": 25})
+        response = self.client.post("/api/lab/servo/", {"angle":90}, content_type="application/json",
+                                    HTTP_ORIGIN="https://testserver", HTTP_AUTHORIZATION="Bearer "+"x"*32)
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(ServoCommand.objects.get().status, "failed")
