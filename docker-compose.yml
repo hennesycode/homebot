@@ -103,11 +103,30 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in Dokploy environment}
       HOMEBOT_HERMES_WEBHOOK_URL: ${HOMEBOT_HERMES_WEBHOOK_URL:-}
       HOMEBOT_HERMES_WEBHOOK_SECRET: ${HOMEBOT_HERMES_WEBHOOK_SECRET:-}
+      HOMEBOT_SENSOR_REPORT_SECONDS: ${HOMEBOT_SENSOR_REPORT_SECONDS:-30}
     depends_on:
       db:
         condition: service_healthy
       mqtt:
         condition: service_started
+      web:
+        condition: service_healthy
+
+  webhook-worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "manage.py", "deliver_alerts"]
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?Set DB_NAME in Dokploy environment}
+      DB_USER: ${DB_USER:?Set DB_USER in Dokploy environment}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in Dokploy environment}
+      HOMEBOT_HERMES_WEBHOOK_URL: ${HOMEBOT_HERMES_WEBHOOK_URL:-}
+      HOMEBOT_HERMES_WEBHOOK_SECRET: ${HOMEBOT_HERMES_WEBHOOK_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
       web:
         condition: service_healthy
 

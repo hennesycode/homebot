@@ -1,4 +1,7 @@
+import uuid
+
 from django.db import models
+from django.utils import timezone
 
 
 class SensorDevice(models.Model):
@@ -67,3 +70,18 @@ class ServoAccessGuard(models.Model):
     key = models.CharField(max_length=20, primary_key=True)
     failures = models.PositiveSmallIntegerField(default=0)
     blocked_until = models.DateTimeField(null=True)
+
+
+class WebhookDelivery(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_id = models.CharField(max_length=100)
+    kind = models.CharField(max_length=20)
+    payload = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+    delivered_at = models.DateTimeField(null=True, db_index=True)
+    last_error = models.CharField(max_length=80, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["device_id", "kind", "-created_at"])]

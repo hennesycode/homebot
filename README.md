@@ -34,7 +34,27 @@ El worker escucha `sensors/+/telemetry`. En el ESP32 configura el dominio/IP de 
 
 ## Alertas a Hermes
 
-Para avisar a Hermes solo cuando un sensor pasa a estado detectado, configura en Dokploy `HOMEBOT_HERMES_WEBHOOK_URL` con la URL HTTPS de la ruta `sensor_alert` creada por Hermes y `HOMEBOT_HERMES_WEBHOOK_SECRET` con el secreto HMAC de esa ruta. El worker firma cada POST con `X-Webhook-Timestamp` y `X-Webhook-Signature-V2`; los secretos no deben guardarse en Git. Despliega de nuevo Homebot después de añadir estas variables.
+Configura en Dokploy `HOMEBOT_HERMES_WEBHOOK_URL` con la URL HTTPS de la ruta `sensor_alert`
+de Hermes y `HOMEBOT_HERMES_WEBHOOK_SECRET` con el secreto HMAC. Redespliega también el
+servicio `webhook-worker`. Cada POST incluye `X-Webhook-Timestamp`, `X-Webhook-Signature-V2`
+y un `X-Request-ID` estable para que el receptor pueda deduplicar reintentos.
+
+Se encolan lecturas de los cinco sensores cada 30 s (`HOMEBOT_SENSOR_REPORT_SECONDS`,
+mínimo 5): HC-SR04, DHT11 con temperatura/humedad, MQ-2 con AO/DO, sonido y luz.
+Además se encolan cambios de sonido/luz/MQ-2 (activación y desactivación), eventos del
+sensor de humo legado y confirmaciones PWM del servo. Los datos inválidos se notifican
+como `state=unavailable`, no como cero. El MQ-2 se marca `uncalibrated`, sin PPM ni afirmar
+ausencia de gas. Se conserva el sobre `event_type=sensor_alert` y el objeto `sensor`;
+el receptor debe aceptar también `state=reading/clear/unavailable/uncalibrated/pwm_confirmed`.
+
+`WebhookDelivery` persiste los mensajes en la misma transacción que la recepción MQTT.
+`python manage.py deliver_alerts` reintenta entregas fallidas con espera creciente hasta
+5 minutos; `--once` realiza una pasada. Sin configuración se conservan pendientes y se
+avisa en logs. Solo HTTP 2xx marca aceptación; los pendientes no se purgan, los aceptados
+se conservan 7 días. `/api/lab/` expone `webhook_delivery.pending` y `last_http_ack`.
+La entrega es al menos una vez después de guardar en Homebot: el receptor debe deduplicar
+por `event_id` y la respuesta HTTP no garantiza que Pao haya procesado o mostrado el aviso.
+No se garantizan muestras perdidas antes de llegar a MQTT/Homebot ni el estado físico del sensor.
 
 ## Desarrollo local sin Docker
 

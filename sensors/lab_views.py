@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .serial_bridge import bridge
-from .models import SensorDevice, ServoAccessGuard, ServoCommand, TelemetryReading
+from .models import SensorDevice, ServoAccessGuard, ServoCommand, TelemetryReading, WebhookDelivery
 from .mqtt_control import publish_servo
 
 
@@ -25,6 +25,13 @@ def state(request):
     else:
         data = mqtt_snapshot()
     data["mq2_active_low"] = os.getenv("HOMEBOT_MQ2_ACTIVE_LOW", "true").lower() == "true"
+    deliveries = WebhookDelivery.objects.filter(device_id=os.getenv("HOMEBOT_DEVICE_ID", "esp32-sensores"))
+    last_ack = deliveries.filter(delivered_at__isnull=False).order_by("-delivered_at").first()
+    data["webhook_delivery"] = {
+        "pending": deliveries.filter(delivered_at__isnull=True).exists(),
+        "last_http_ack": last_ack.delivered_at.isoformat() if last_ack else None,
+        "note": "HTTP aceptado no confirma que Pao haya procesado el mensaje",
+    }
     response = JsonResponse(data)
     response["Cache-Control"] = "no-store"
     return response

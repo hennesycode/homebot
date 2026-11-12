@@ -13,8 +13,10 @@ import paho.mqtt.client as mqtt
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections, transaction
 from django.utils import timezone
+from urllib.parse import urlparse
 
 from sensors.models import LightReading, SensorDevice, ServoCommand, SmokeReading, SoundReading, TelemetryReading
+from sensors.sensor_notifications import enqueue, queue_sensor_notifications
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +26,28 @@ def store_servo_ack(device_id, payload):
     if (not isinstance(ack, dict) or type(ack.get("id")) is not int or
             type(ack.get("angle")) is not int or not 45 <= ack["angle"] <= 135):
         raise ValueError("Invalid servo acknowledgement")
-    return ServoCommand.objects.filter(pk=ack["id"], device_id=device_id,
-                                       angle=ack["angle"], status="pending",
-                                       created_at__gte=timezone.now()-timedelta(seconds=10)).update(
-        status="confirmed", confirmed_at=timezone.now())
+    now = timezone.now()
+    with transaction.atomic():
+        updated = ServoCommand.objects.filter(pk=ack["id"], device_id=device_id,
+                                              angle=ack["angle"], status="pending",
+                                              created_at__gte=now-timedelta(seconds=10)).update(
+            status="confirmed", confirmed_at=now)
+        if updated:
+            enqueue(device_id, {"id": "servo", "name": "Servo SG90", "type": "servo", "pin": 23,
+                                "value": ack["angle"], "unit": "requested_degrees"},
+                    "servo", now, "command_acknowledged")
+    return updated
 
 
-def send_hermes_alert(payload):
+def send_hermes_alert(payload, request_id=None):
     url = os.getenv("HOMEBOT_HERMES_WEBHOOK_URL", "").strip()
     secret = os.getenv("HOMEBOT_HERMES_WEBHOOK_SECRET", "")
     if not url or not secret:
-        return
+        return False
+    destination = urlparse(url)
+    if destination.scheme != "https" or not destination.hostname or destination.username or destination.password:
+        logger.error("Hermes webhook requires HTTPS")
+        return False
 
     timestamp = str(int(time.time()))
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -47,17 +60,19 @@ def send_hermes_alert(payload):
             "Content-Type": "application/json",
             "X-Webhook-Timestamp": timestamp,
             "X-Webhook-Signature-V2": signature,
-            "X-Request-ID": str(uuid.uuid4()),
+            "X-Request-ID": str(request_id or uuid.uuid4()),
         },
         method="POST",
     )
     try:
         with urllib.request.urlopen(request, timeout=5) as response:
             logger.info("Hermes accepted sensor alert (HTTP %s)", response.status)
+            return 200 <= response.status < 300
     except urllib.error.HTTPError as exc:
         logger.error("Hermes rejected sensor alert (HTTP %s)", exc.code)
-    except (urllib.error.URLError, TimeoutError) as exc:
+    except (OSError, TimeoutError) as exc:
         logger.warning("Hermes webhook unavailable: %s", type(exc).__name__)
+    return False
 
 
 class Command(BaseCommand):
@@ -153,6 +168,7 @@ class Command(BaseCommand):
                         SmokeReading.objects.create(device=device, detected=smoke_detected)
                     if not message.retain:
                         TelemetryReading.objects.create(device=device, payload=payload)
+                        queue_sensor_notifications(parts[1], payload, parts[2])
             except DatabaseError:
                 logger.exception("Failed to store telemetry from %s", parts[1])
             finally:
@@ -164,28 +180,6 @@ class Command(BaseCommand):
                     last_cleanup = time.monotonic()
                 except DatabaseError:
                     logger.exception("Telemetry history cleanup failed")
-
-            if parts[2] == "events" and changed_sensor and payload.get(f"{changed_sensor}_detected") is True:
-                sensor_names = {
-                    "sound": payload.get("sensor_name", "Sensor de sonido"),
-                    "light": payload.get("light_name", "Sensor de luz"),
-                    "smoke": payload.get("smoke_name", "Sensor de humo"),
-                }
-                sensor_pins = {"sound": pin, "light": light_pin, "smoke": smoke_pin}
-                send_hermes_alert({
-                    "event_type": "sensor_alert",
-                    "device_id": parts[1],
-                    "sensor": {
-                        "id": changed_sensor,
-                        "name": sensor_names[changed_sensor],
-                        "type": changed_sensor,
-                        "pin": sensor_pins[changed_sensor],
-                        "value": 1,
-                        "unit": "digital",
-                    },
-                    "state": "detected",
-                    "occurred_at": timezone.now().isoformat(),
-                })
 
         client.on_connect = on_connect
         client.on_message = on_message
