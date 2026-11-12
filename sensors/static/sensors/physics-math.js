@@ -11,8 +11,9 @@
     const speed = finite(temperature) ? 331.3+0.606*temperature : null;
     return {echoUs, speed, corrected:speed === null ? null : distance*speed/343};
   }
-  function servoPulse(angle) {
-    return finite(angle) && angle >= 45 && angle <= 135 ? 1100+(angle-45)*800/90 : null;
+  function servoPulse(angle, profile={min_angle:0,max_angle:180,min_pulse_us:1000,max_pulse_us:2000}) {
+    const {min_angle:lo,max_angle:hi,min_pulse_us:pmin,max_pulse_us:pmax}=profile;
+    return [angle,lo,hi,pmin,pmax].every(finite)&&hi>lo&&angle>=lo&&angle<=hi ? pmin+(angle-lo)*(pmax-pmin)/(hi-lo) : null;
   }
   function force(field, current, length, angle) {
     if (![field,current,length,angle].every(finite)) return null;

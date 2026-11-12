@@ -17,14 +17,18 @@ from urllib.parse import urlparse
 
 from sensors.models import LightReading, SensorDevice, ServoCommand, SmokeReading, SoundReading, TelemetryReading
 from sensors.sensor_notifications import enqueue, queue_sensor_notifications
+from sensors.servo_contract import valid_angle
 
 logger = logging.getLogger(__name__)
 
 
 def store_servo_ack(device_id, payload):
     ack = json.loads(payload)
+    if (isinstance(ack, dict) and type(ack.get("id")) is int and ack.get("error") == "pwm_unavailable"):
+        return ServoCommand.objects.filter(pk=ack["id"], device_id=device_id, status="pending",
+                                           created_at__gte=timezone.now()-timedelta(seconds=10)).update(status="failed")
     if (not isinstance(ack, dict) or type(ack.get("id")) is not int or
-            type(ack.get("angle")) is not int or not 45 <= ack["angle"] <= 135):
+            not valid_angle(ack.get("angle"))):
         raise ValueError("Invalid servo acknowledgement")
     now = timezone.now()
     with transaction.atomic():

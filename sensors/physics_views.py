@@ -19,7 +19,7 @@ def telemetry(request):
     """Read-only adapter: reuse acquisition, add actual servo ACK timestamps for replay."""
     if os.getenv('HOMEBOT_SOURCE', 'mqtt') == 'usb':
         data = bridge.snapshot()
-        data.update(source='usb', control_enabled=True)
+        data.update(source='usb', control_enabled=data['servo'].get('pwm_initialized') is not False)
     else:
         data = mqtt_snapshot()
         commands = list(ServoCommand.objects.filter(

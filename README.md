@@ -88,8 +88,21 @@ Cierra otros monitores seriales. El puente reconoce CP2102 automáticamente; `ES
 permite fijar un puerto. Reconecta cada 2 s, mantiene 120 muestras por canal en memoria
 y no necesita Wi-Fi. Ejecuta una sola instancia del servidor USB para evitar propietarios
 duplicados del puerto. Las gráficas consultan AJAX cada 0,5–2 s, sin solicitudes solapadas.
-El servo admite 45–135° y requiere firmware con el protocolo `SERVO id angle` /
+El servo admite 0–180° nominales (1000–2000 µs a 50 Hz) y requiere firmware con el protocolo `SERVO id angle` /
 `SERVO_ACK id angle`. La confirmación es del PWM solicitado, no de la posición mecánica.
+El firmware prepara LEDC a 50 Hz y no hace barridos ni centra automáticamente al arrancar.
+Se comprueba la inicialización PWM y se informa `servo_ready` en telemetría. Web, USB,
+MQTT y Physics Lab usan el mismo rango nominal y rechazan ángulos fuera de 0–180°.
+Los extremos necesitan confirmar el recorrido libre; no equivalen a un ángulo mecánico calibrado.
+Si el ESP32 sigue enviando telemetría sin capacidades `servo_min_angle`/`servo_max_angle`,
+se conserva el rango compatible 45–135°: hay que conectar USB y cargar el firmware nuevo
+antes de habilitar los extremos. La web no puede actualizar por Wi-Fi un firmware sin OTA.
+Si un ACK correcto no produce movimiento, verifica con el servo sin carga: rojo a 5 V
+regulados con corriente suficiente (preferiblemente fuente dedicada de al menos 1 A),
+café a GND común y naranja a GPIO23. Mide rojo/café bajo carga, no desde el propio GPIO.
+No unas una fuente externa de 5 V al USB sin protección contra alimentación inversa.
+Si zumba o se atasca, corta la alimentación. No fuerces topes ni amplíes automáticamente
+a 500–2500 µs: `SERVO_MIN_PULSE_US`/`SERVO_MAX_PULSE_US` requieren calibración supervisada.
 
 En la VPS, Compose establece `HOMEBOT_SOURCE=mqtt`; `HOMEBOT_DEVICE_ID` selecciona la placa.
 El worker guarda la telemetría completa en `TelemetryReading`, conserva 24 h con limpieza
@@ -142,7 +155,7 @@ sin abrir otra conexión serial ni otro suscriptor MQTT.
 
 Datos reales, simulación y reproducción están rotulados. Cambiar sliders no mueve el
 servo: solo el botón explícito de envío, con confirmación del visitante y la autorización
-existente, puede enviar una orden de 45–135°. No se afirman lux, PPM, corriente, campo
+existente, puede enviar una orden de 0–180° nominales. No se afirman lux, PPM, corriente, campo
 magnético, seguridad de voltajes ni posición real del eje sin sensores adicionales.
 Las animaciones describen conceptos; no generan mediciones nuevas ni prueban causalidad.
 

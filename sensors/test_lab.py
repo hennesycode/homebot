@@ -22,8 +22,10 @@ class LabTests(SimpleTestCase):
         bridge = SerialBridge()
         with self.assertRaises(ValueError):
             bridge.queue_servo(90)
-        bridge.pending = {"id": 5}
+        bridge.pending = {"id": 5, "angle": 90}
         bridge.consume("SERVO_ACK 4 90")
+        self.assertIsNotNone(bridge.pending)
+        bridge.consume("SERVO_ACK 5 91")
         self.assertIsNotNone(bridge.pending)
         bridge.consume("SERVO_ACK 5 90")
         self.assertIsNone(bridge.pending)
@@ -34,7 +36,7 @@ class LabTests(SimpleTestCase):
     @patch.dict(os.environ, {"HOMEBOT_SOURCE": "usb"})
     def test_servo_validation_and_origin(self):
         with patch("sensors.lab_views.bridge.queue_servo") as command:
-            for angle in (0, 180, True, "90", None):
+            for angle in (-1, 181, True, "90", None):
                 response = self.client.post("/api/lab/servo/", {"angle": angle}, content_type="application/json")
                 self.assertEqual(response.status_code, 400)
             response = self.client.post("/api/lab/servo/", {"angle": 90}, content_type="application/json", HTTP_ORIGIN="https://evil.example")
@@ -43,6 +45,16 @@ class LabTests(SimpleTestCase):
             response = self.client.post("/api/lab/servo/", {"angle": 90}, content_type="application/json")
             self.assertEqual(response.status_code, 202)
             command.assert_called_once_with(90)
+
+    @patch.dict(os.environ, {"HOMEBOT_SOURCE": "usb"})
+    def test_full_nominal_servo_range(self):
+        from .servo_contract import servo_state
+        with patch("sensors.lab_views.bridge.queue_servo") as command:
+            for angle, pulse in ((0,1000),(90,1500),(180,2000)):
+                response=self.client.post('/api/lab/servo/', {'angle':angle}, content_type='application/json')
+                self.assertEqual(response.status_code,202)
+                self.assertEqual(servo_state({'angle':angle})['pulse_us'],pulse)
+                command.assert_called_with(angle)
 
 
 class MqttLabTests(TestCase):
@@ -80,6 +92,38 @@ class MqttLabTests(TestCase):
         self.assertEqual(authorize_servo("Bearer 486", "486").status_code, 429)
         ServoAccessGuard.objects.update(blocked_until=timezone.now()-timedelta(seconds=1))
         self.assertIsNone(authorize_servo("Bearer 486", "486"))
+
+    def test_full_range_ack_and_pwm_failure(self):
+        import json
+        from .models import ServoCommand
+        from .management.commands.mqtt_listener import store_servo_ack
+        for angle in (0,180):
+            command=ServoCommand.objects.create(device_id='unit',angle=angle)
+            self.assertEqual(store_servo_ack('unit',json.dumps({'id':command.pk,'angle':angle})),1)
+            command.refresh_from_db()
+            self.assertEqual(command.status,'confirmed')
+        command=ServoCommand.objects.create(device_id='unit',angle=90)
+        self.assertEqual(store_servo_ack('unit',json.dumps({'id':command.pk,'error':'pwm_unavailable'})),1)
+        command.refresh_from_db()
+        self.assertEqual(command.status,'failed')
+
+    @patch.dict(os.environ, {'HOMEBOT_SOURCE':'mqtt','HOMEBOT_DEVICE_ID':'unit','HOMEBOT_CONTROL_TOKEN':'486'})
+    @patch('sensors.lab_views.publish_servo')
+    def test_old_firmware_rejects_extremes_until_usb_update(self, publish):
+        from .models import SensorDevice, TelemetryReading
+        device=SensorDevice.objects.create(device_id='unit',name='ESP32')
+        row=TelemetryReading.objects.create(device=device,payload={'distance_cm':20})
+        headers={'HTTP_ORIGIN':'https://testserver','HTTP_AUTHORIZATION':'Bearer 486'}
+        response=self.client.post('/api/lab/servo/',{'angle':180},content_type='application/json',**headers)
+        self.assertEqual(response.status_code,409)
+        publish.assert_not_called()
+        state=self.client.get('/api/lab/').json()
+        self.assertEqual(state['servo']['max_angle'],135)
+        row.payload={'distance_cm':20,'servo_min_angle':0,'servo_max_angle':180,'servo_ready':True}
+        row.save()
+        response=self.client.post('/api/lab/servo/',{'angle':180},content_type='application/json',**headers)
+        self.assertEqual(response.status_code,202)
+        publish.assert_called_once()
 
     @patch.dict(os.environ, {"HOMEBOT_SOURCE": "mqtt", "HOMEBOT_DEVICE_ID": "unit"})
     def test_remote_snapshot_and_control_disabled(self):

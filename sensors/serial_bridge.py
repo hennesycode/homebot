@@ -10,6 +10,7 @@ from collections import deque
 
 import serial
 from serial.tools import list_ports
+from .servo_contract import servo_state, supports_full_range, valid_angle
 
 
 class SerialBridge:
@@ -26,6 +27,7 @@ class SerialBridge:
         self.pending = None
         self.command_id = 0
         self.servo = {"angle": None, "status": "Sin confirmación PWM"}
+        self.full_servo_range = False
 
     def start(self):
         with self.lock:
@@ -50,6 +52,11 @@ class SerialBridge:
                 self.data.clear()
                 self.servo = {"angle": None, "status": "ESP32 reiniciado"}
                 self.pending = None
+                self.last_seen = 0
+                self.full_servo_range = False
+            if line.startswith('SERVO_ERROR') and self.pending:
+                self.servo['status'] = line
+                self.pending = None
             distance = re.fullmatch(r"Distancia: (\d+(?:\.\d+)?) cm \(ECHO \d+ us\)", line)
             if distance:
                 self.record("distance_cm", float(distance[1]), now)
@@ -70,14 +77,18 @@ class SerialBridge:
                     return
                 if not isinstance(data, dict) or "distance_cm" not in data:
                     return
+                if type(data.get('servo_ready')) is bool:
+                    self.servo['pwm_initialized'] = data['servo_ready']
+                self.full_servo_range = supports_full_range(data)
                 for key in ("distance_cm", "temperature_c", "humidity_pct", "sound_gpio_high", "sound_detected",
                             "light_gpio_high", "mq2_do_high", "mq2_ao_raw"):
                     if key in data:
                         self.record(key, data[key], now)
                 self.last_seen = now
             match = re.fullmatch(r"SERVO_ACK (\d+) (\d+)", line)
-            if match and self.pending and int(match[1]) == self.pending["id"]:
-                self.servo = {"angle": int(match[2]), "status": "Orden PWM confirmada"}
+            if (match and self.pending and int(match[1]) == self.pending["id"] and
+                    int(match[2]) == self.pending["angle"]):
+                self.servo.update(angle=int(match[2]), status="Orden PWM confirmada (movimiento no medido)")
                 self.record("servo_angle", int(match[2]), now)
                 self.pending = None
 
@@ -89,12 +100,18 @@ class SerialBridge:
                 "usb": self.connected, "online": self.connected and now - self.last_seen < 6,
                 "port": self.port, "error": self.error, "last_seen": self.last_seen,
                 "data": self.data, "histories": {k: list(v) for k, v in self.histories.items()},
-                "logs": list(self.logs), "servo": self.servo,
+                "logs": list(self.logs), "servo": servo_state(self.servo, legacy=not self.full_servo_range),
                 "pending": self.pending is not None, "now": now,
             })
 
     def queue_servo(self, angle):
         with self.lock:
+            if not valid_angle(angle):
+                raise ValueError("Ángulo entero entre 0 y 180° nominales")
+            if not self.full_servo_range and not 45 <= angle <= 135:
+                raise ValueError("Firmware antiguo: carga por USB el rango 0–180° antes de usar extremos")
+            if self.servo.get('pwm_initialized') is False:
+                raise ValueError("ESP32 informa que PWM del servo no está disponible")
             if not self.connected or time.time() - self.last_seen >= 6:
                 raise ValueError("ESP32 sin telemetría reciente")
             if self.pending:
@@ -103,6 +120,7 @@ class SerialBridge:
             self.pending = {"id": self.command_id, "angle": angle, "sent": False,
                             "deadline": time.monotonic() + 5}
             self.servo["status"] = "Esperando confirmación"
+            self.servo.update(command_id=self.command_id, requested_angle=angle)
 
     def run(self):
         while True:

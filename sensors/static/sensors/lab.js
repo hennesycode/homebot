@@ -12,6 +12,9 @@ const clock = (at) => new Date(at * 1000).toLocaleTimeString('es', {hour12:false
 let sending = false;
 let servoError = '';
 let mq2ActiveLow = true;
+const servoButtons = () => [$('send-servo'), ...document.querySelectorAll('[data-servo-angle]')];
+let servoLimits={min:0,max:180};
+function disableServo(disabled) { servoButtons().forEach(button=>{const angle=Number(button.dataset.servoAngle);button.disabled=disabled || button.hasAttribute('data-servo-angle')&&(angle<servoLimits.min||angle>servoLimits.max);}); }
 
 function digitalActive(channel, value) {
   if (channel.key === 'light_gpio_high') return !value;
@@ -72,9 +75,17 @@ function render(data) {
     $('time-'+c.key).textContent=sample?clock(sample.at):'—';
     chart(c,data.histories[c.key]||[]);
   });
-  $('send-servo').disabled=$('center-servo').disabled=!data.control_enabled||!data.online||data.pending||sending;
+  servoLimits={min:data.servo.min_angle??45,max:data.servo.max_angle??135};
+  $('angle').min=servoLimits.min;$('angle').max=servoLimits.max;
+  if(Number($('angle').value)<servoLimits.min||Number($('angle').value)>servoLimits.max)$('angle').value=90;
+  $('angle-value').textContent=$('angle').value+'°';
+  document.querySelector('.range-labels span:first-child').textContent=servoLimits.min+'°';
+  document.querySelector('.range-labels span:last-child').textContent=servoLimits.max+'°';
+  disableServo(!data.control_enabled||!data.online||data.pending||sending);
   $('control-auth').hidden=data.source!=='mqtt';
-  $('servo-status').textContent=servoError || data.servo.status+(data.servo.angle!==null?` · ${data.servo.angle}° confirmados por firmware`:'');
+  const request = data.servo.command_id ? ` · Orden #${data.servo.command_id}: ${data.servo.requested_angle}° solicitados` : '';
+  const confirmed = data.servo.angle!==null ? ` · Último PWM confirmado: ${data.servo.angle}° nominales${data.servo.pulse_us?' / '+data.servo.pulse_us+' µs':''}` : ' · Sin PWM confirmado';
+  $('servo-status').textContent=servoError || data.servo.status+request+confirmed+' · Eje físico no medido';
   if(data.servo.angle!==null) $('servo-arm').style.transform=`rotate(${data.servo.angle-180}deg)`;
   const log=$('logs'), nearBottom=log.scrollHeight-log.scrollTop-log.clientHeight<50;
   log.textContent=data.logs.map(l=>`${clock(l.at)}  ${l.text}`).join('\n')||(data.source==='mqtt'?'Sin registros MQTT recientes. El dominio no recibe el monitor USB.':'Esperando mensajes…');
@@ -90,16 +101,19 @@ async function refresh() {
     $('warning').textContent='No se pudo actualizar: '+error.message;
     $('connection').textContent='Conexión al servidor interrumpida';
     $('connection').className='';
-    $('send-servo').disabled=$('center-servo').disabled=true;
+    disableServo(true);
     channels.forEach(c=>{ $('status-'+c.key).textContent='Datos sin actualizar'; $('status-'+c.key).className='badge'; });
   } finally {
     window.setTimeout(refresh,Number($('refresh').value));
   }
 }
 async function moveServo(angle) {
+  if(!Number.isInteger(angle)||angle<0||angle>180)return;
+  if(angle<servoLimits.min||angle>servoLimits.max){servoError='Actualiza el firmware por USB para ampliar el recorrido.';$('servo-status').textContent=servoError;return;}
+  if((angle<10||angle>170)&&!window.confirm(`Orden real hacia ${angle}° nominales. Deja libre el brazo, evita topes y corta alimentación si zumba o se atasca. ¿Continuar?`))return;
   sending=true;
   servoError='';
-  $('send-servo').disabled=$('center-servo').disabled=true;
+  disableServo(true);
   try {
     const headers={'Content-Type':'application/json'};
     if(!$('control-auth').hidden) headers.Authorization='Bearer '+$('control-token').value;
@@ -112,6 +126,6 @@ async function moveServo(angle) {
 }
 $('angle').addEventListener('input',()=>{$('angle-value').textContent=$('angle').value+'°';});
 $('send-servo').addEventListener('click',()=>moveServo(Number($('angle').value)));
-$('center-servo').addEventListener('click',()=>{ $('angle').value=90; $('angle-value').textContent='90°'; moveServo(90); });
+document.querySelectorAll('[data-servo-angle]').forEach(button=>button.addEventListener('click',()=>{const angle=Number(button.dataset.servoAngle);$('angle').value=angle;$('angle-value').textContent=angle+'°';moveServo(angle);}));
 $('toggle-log').addEventListener('click',()=>{ $('logs').hidden=!$('logs').hidden; $('toggle-log').textContent=$('logs').hidden?'Mostrar registro':'Ocultar registro'; $('toggle-log').setAttribute('aria-expanded',String(!$('logs').hidden)); });
 refresh();

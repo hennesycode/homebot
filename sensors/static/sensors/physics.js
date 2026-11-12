@@ -43,6 +43,9 @@
   let camera={x:48,z:-22,zoom:1}, dragging=null, dragged=false, servoPreview=90, previewChanged=false, servoSending=false;
   let dbPromise=null, currentSnapshot=null, historyBusy=false;
   const simValues={distance_cm:25,temperature_c:25,humidity_pct:60,mq2_ao_raw:500,sound_detected:0,light_gpio_high:0,mq2_do_high:1};
+  const legacyServoProfile={min_angle:45,max_angle:135,min_pulse_us:1100,max_pulse_us:1900};
+  const nominalServoProfile={min_angle:0,max_angle:180,min_pulse_us:1000,max_pulse_us:2000};
+  function servoProfile(s) {return M.finite(s?.servo?.min_angle)?s.servo:mode==='sim'?nominalServoProfile:legacyServoProfile;}
 
   function value(snapshot,key) {
     if (key==='servo_angle') return M.finite(snapshot?.data?.servo_angle?.value) ? snapshot.data.servo_angle.value : M.finite(snapshot?.servo?.angle) ? snapshot.servo.angle : null;
@@ -71,7 +74,7 @@
       const data=Object.fromEntries(Object.entries(sample.values).map(([k,v])=>[k,{value:v,at:sample.received_at?.[k]??sample.at}]));
       const histories={};
       for (const key of Object.keys(sample.values)) histories[key]=replay.samples.slice(Math.max(0,replayIndex-119),replayIndex+1).map(s=>[s.at,s.values[key]]);
-      return {online:false,now:sample.at,last_seen:sample.at,data,histories,mq2_active_low:replay.mq2ActiveLow,servo:{angle:sample.values.servo_angle}};
+      return {online:false,now:sample.at,last_seen:sample.at,data,histories,mq2_active_low:replay.mq2ActiveLow,servo:{...(replay.servoProfile||legacyServoProfile),angle:sample.values.servo_angle}};
     }
     const now=Date.now()/1000;
     return {online:false,now,last_seen:now,source:'simulation',data:Object.fromEntries(Object.entries(simValues).map(([k,v])=>[k,{value:v,at:now}])),histories:simHistory,mq2_active_low:true,servo:{angle:servoPreview}};
@@ -158,7 +161,8 @@
     }
     if(c.id==='light')return `<div class="equation">R_LDR ≈ K E^(−γ)</div><p class="substitution">${digitalLabel('light_gpio_high',value(s,'light_gpio_high'),s)} · DO ${value(s,'light_gpio_high')===null?'—':value(s,'light_gpio_high')?'HIGH':'LOW'}</p><p class="muted">E, K, γ y R no están medidos: esta ecuación no se resuelve con DO.</p>`;
     const angle=value(s,'servo_angle');
-    return `<div class="equation">F = B I L sen(θ)</div><div class="equation">p(θ) = 1100 + (θ − 45) · 800/90</div><p class="substitution">Última orden: ${fmt(angle,0)}° · pulso calculado ${fmt(M.servoPulse(angle),0)} µs. Periodo 20 ms.</p>`;
+    const profile=servoProfile(s);
+    return `<div class="equation">F = B I L sen(θ)</div><div class="equation">p(θ) = ${profile.min_pulse_us} + (θ − ${profile.min_angle}) · ${profile.max_pulse_us-profile.min_pulse_us}/${profile.max_angle-profile.min_angle}</div><p class="substitution">Última orden: ${fmt(angle,0)}° nominales · pulso calculado ${fmt(M.servoPulse(angle,profile),0)} µs. Periodo 20 ms. Recorrido físico sin calibrar.</p>`;
   }
   function drawChart(svg,points,width=360,height=110,digital=false) {
     const valid=points.filter(([at,v])=>M.finite(at)&&M.finite(v));
@@ -220,7 +224,9 @@
     $('model-servo-arm').style.transform=`translateZ(42px) rotateZ(${(angle??90)-180}deg)`;
     $('rig').classList.toggle('flowing',mode!=='live'||s.online);
     $('physics-auth').hidden=live?.source==='usb';
-    $('physics-servo-send').disabled=mode!=='live'||recording?.mode==='sim'||!live?.online||!live?.control_enabled||live.pending||servoSending;
+    const profile=servoProfile(live);
+    $('physics-servo-send').disabled=mode!=='live'||recording?.mode==='sim'||!live?.online||!live?.control_enabled||live.pending||servoSending||servoPreview<profile.min_angle||servoPreview>profile.max_angle;
+    if(mode==='live')$('servo-model-note').textContent=`El deslizador solo mueve el modelo. Firmware actual: ${profile.min_angle}–${profile.max_angle}° nominales. Pulsa Enviar orden para mover el SG90; ${profile.max_angle<180?'conecta USB para cargar el rango ampliado.':'no fuerces topes; el recorrido físico requiere calibración.'}`;
     if(activeTab==='signals')renderSignals(s);
     if(mode==='replay')$('replay-at').textContent=`${replayIndex+1} / ${replay.samples.length} · ${clock(s.now)}`;
   }
@@ -312,7 +318,7 @@
       const corrected=points.map(p=>M.ultrasound(p.value,p.frame.values.temperature_c)?.corrected??null);
       list.push(['Promedio compensado (modelo)',fmt(M.statistics(corrected)?.mean,2)+' cm']);
     }
-    if(session.kind==='motor')list.push(['Pulso del promedio (modelo)',fmt(M.servoPulse(stats.mean),0)+' µs']);
+    if(session.kind==='motor')list.push(['Pulso del promedio (modelo)',fmt(M.servoPulse(stats.mean,session.servoProfile||legacyServoProfile),0)+' µs']);
     $('experiment-results').innerHTML=resultItems(list);
     drawChart($('experiment-chart'),points.map(p=>[p.at,p.value]),560,200,session.kind==='light');
     $('experiment-conclusion').textContent=`${session.mode==='live'?'Evidencia de recepción, no de calibración.':'Simulación: no valida hardware.'} ${session.kind==='reflection'&&stats.count<20?'Aún faltan muestras: reúne al menos 20 por referencia.':session.kind==='reflection'?'Compara el error con la incertidumbre de la regla y la especificación del sensor.':'Las relaciones temporales no demuestran causalidad ni una posición física medida.'}`;
@@ -333,7 +339,8 @@
     if(mode==='live'&&!live?.online){$('record-status').textContent='No hay telemetría reciente. Conecta el ESP32 o elige Simulación.';return;}
     const reference=$('experiment-kind').value==='reflection'?Number($('reference-distance').value):null;
     if(reference!==null&&(!M.finite(reference)||reference<2||reference>400)){$('record-status').textContent='La referencia debe estar entre 2 y 400 cm.';return;}
-    recording={id:crypto.randomUUID(),title:$('experiment-name').value.trim()||'Experimento sin título',kind:$('experiment-kind').value,mode,reference,startedAt:Date.now(),endedAt:null,mq2ActiveLow:mode==='sim'||live?.mq2_active_low!==false,samples:[],version:1};
+    const profile=servoProfile(snapshot());
+    recording={id:crypto.randomUUID(),title:$('experiment-name').value.trim()||'Experimento sin título',kind:$('experiment-kind').value,mode,reference,startedAt:Date.now(),endedAt:null,mq2ActiveLow:mode==='sim'||live?.mq2_active_low!==false,servoProfile:{min_angle:profile.min_angle,max_angle:profile.max_angle,min_pulse_us:profile.min_pulse_us,max_pulse_us:profile.max_pulse_us},samples:[],version:2};
     recordTimer=setTimeout(finishRecording,600000);
     $('record-start').disabled=true;$('record-stop').disabled=false;$('experiment-kind').disabled=true;$('reference-distance').disabled=true;
     capture(snapshot());

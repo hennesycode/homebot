@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_POST
 from .serial_bridge import bridge
 from .models import SensorDevice, ServoAccessGuard, ServoCommand, TelemetryReading, WebhookDelivery
 from .mqtt_control import publish_servo
+from .servo_contract import servo_state, supports_full_range, valid_angle
 
 
 @require_GET
@@ -21,7 +22,7 @@ def state(request):
     if os.getenv("HOMEBOT_SOURCE", "mqtt") == "usb":
         data = bridge.snapshot()
         data["source"] = "usb"
-        data["control_enabled"] = True
+        data["control_enabled"] = data['servo'].get('pwm_initialized') is not False
     else:
         data = mqtt_snapshot()
     data["mq2_active_low"] = os.getenv("HOMEBOT_MQ2_ACTIVE_LOW", "true").lower() == "true"
@@ -58,8 +59,8 @@ def servo(request):
     try:
         data = json.loads(request.body)
         angle = data.get("angle") if isinstance(data, dict) else None
-        if type(angle) is not int or not 45 <= angle <= 135:
-            return JsonResponse({"error": "Ángulo entero entre 45 y 135°"}, status=400)
+        if not valid_angle(angle):
+            return JsonResponse({"error": "Ángulo entero entre 0 y 180° nominales"}, status=400)
         if remote:
             return remote_servo(angle)
         bridge.queue_servo(angle)
@@ -90,8 +91,13 @@ def authorize_servo(authorization, token):
 def remote_servo(angle):
     device_id = os.getenv("HOMEBOT_DEVICE_ID", "esp32-sensores")
     cutoff = timezone.now() - timedelta(seconds=10)
-    if not TelemetryReading.objects.filter(device_id=device_id, received_at__gte=cutoff).exists():
+    recent = TelemetryReading.objects.filter(device_id=device_id, received_at__gte=cutoff).order_by('-received_at').first()
+    if not recent:
         return JsonResponse({"error": "ESP32 sin telemetría reciente"}, status=409)
+    if recent.payload.get('servo_ready') is False:
+        return JsonResponse({"error": "ESP32 informa que PWM del servo no está disponible"}, status=409)
+    if not supports_full_range(recent.payload) and not 45 <= angle <= 135:
+        return JsonResponse({"error": "Firmware antiguo (45–135°). Conecta el ESP32 por USB para cargar el rango 0–180°."}, status=409)
     with transaction.atomic():
         # Serialize commands across web workers; old pending requests expire after 10 s.
         SensorDevice.objects.select_for_update().get(pk=device_id)
@@ -126,7 +132,7 @@ def mqtt_snapshot():
     online = now - last_seen < 10
     commands = list(ServoCommand.objects.filter(device_id=device_id).order_by("-created_at")[:20])
     logs = [{"at": row.received_at.timestamp(), "text": "Telemetría MQTT: " + json.dumps(row.payload, ensure_ascii=False)} for row in rows[-40:]]
-    command_labels = {"pending": "en espera", "confirmed": "PWM confirmado", "failed": "error de envío", "timeout": "sin confirmación"}
+    command_labels = {"pending": "en espera", "confirmed": "PWM confirmado", "failed": "orden no aplicada", "timeout": "sin confirmación"}
     for command in commands:
         logs.append({"at": (command.confirmed_at or command.created_at).timestamp(),
                      "text": f"Servo #{command.pk}: {command.angle}° · {command_labels.get(command.status, command.status)}"})
@@ -134,14 +140,23 @@ def mqtt_snapshot():
     latest = commands[0] if commands else None
     confirmed = next((c for c in commands if c.status == "confirmed"), None)
     pending = bool(latest and latest.status == "pending" and now-latest.created_at.timestamp() < 10)
-    labels = {"confirmed": "Orden PWM confirmada", "failed": "Error al publicar en MQTT", "timeout": "Sin confirmación del ESP32"}
+    labels = {"confirmed": "Orden PWM confirmada (movimiento físico no medido)", "failed": "Orden no aplicada: revisar broker/PWM", "timeout": "Sin confirmación del ESP32"}
     status = ("Esperando confirmación MQTT" if pending else
               labels.get(latest.status, "Sin confirmación del ESP32")) if latest else "Listo para control MQTT autorizado"
     configured = len(os.getenv("HOMEBOT_CONTROL_TOKEN", "")) >= 3
+    pwm_initialized = rows[-1].payload.get('servo_ready') if rows else None
+    legacy = not rows or not supports_full_range(rows[-1].payload)
+    if legacy:
+        status += " · Firmware antiguo 45–135°: requiere actualización USB para ampliar rango"
+    if pwm_initialized is False:
+        status = "ESP32 informa fallo de inicialización PWM"
     if not configured:
         status = "Falta configurar HOMEBOT_CONTROL_TOKEN en el servidor"
     return {"source": "mqtt", "usb": False, "online": online, "port": f"MQTT / {device_id}",
             "last_seen": last_seen, "now": now, "data": data, "histories": histories,
-            "logs": logs[-40:], "pending": pending, "control_enabled": configured,
+            "logs": logs[-40:], "pending": pending, "control_enabled": configured and pwm_initialized is not False,
             "error": None if online else "Sin telemetría MQTT reciente. Comprueba Wi-Fi, broker y mqtt-worker.",
-            "servo": {"angle": confirmed.angle if confirmed else None, "status": status}}
+            "servo": servo_state({"angle": confirmed.angle if confirmed else None, "status": status,
+                                  "command_id": latest.pk if latest else None,
+                                  "requested_angle": latest.angle if latest else None,
+                                  "pwm_initialized": pwm_initialized}, legacy=legacy)}

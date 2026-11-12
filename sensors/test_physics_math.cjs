@@ -16,10 +16,13 @@ test('derived ECHO, temperature compensation and bounded PWM', () => {
   assert.ok(Math.abs(u.speed-343.42)<1e-8);
   assert.equal(m.ultrasound(null,20),null);
   assert.equal(m.ultrasound(20,null).corrected,null);
-  assert.equal(m.servoPulse(45),1100);
+  assert.equal(m.servoPulse(0),1000);
   assert.equal(m.servoPulse(90),1500);
-  assert.equal(m.servoPulse(135),1900);
-  assert.equal(m.servoPulse(180),null);
+  assert.equal(m.servoPulse(180),2000);
+  assert.equal(m.servoPulse(181),null);
+  const legacy={min_angle:45,max_angle:135,min_pulse_us:1100,max_pulse_us:1900};
+  assert.equal(m.servoPulse(45,legacy),1100);
+  assert.equal(m.servoPulse(135,legacy),1900);
 });
 test('statistics exclude unavailable values instead of converting to zero', () => {
   const s=m.statistics([10,20,30,null,NaN],20);
